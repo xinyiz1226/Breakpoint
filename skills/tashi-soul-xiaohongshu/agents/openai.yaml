@@ -1,0 +1,4 @@
+interface:
+  display_name: "TASHI SOUL Xiaohongshu"
+  short_description: "Create calm TASHI SOUL Xiaohongshu posts"
+  default_prompt: "Use $tashi-soul-xiaohongshu to draft a calm Xiaohongshu note for TASHI SOUL."
