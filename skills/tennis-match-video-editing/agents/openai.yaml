@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tennis Match Video Editing"
+  short_description: "Edit full tennis match raw footage into a final highlight video"
+  default_prompt: "Use $tennis-match-video-editing to edit this full-match tennis raw video into a final highlight video with source-matching resolution."
