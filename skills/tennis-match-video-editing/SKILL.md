@@ -16,9 +16,10 @@ Use this skill to transform a full-match raw video into a playable edited match 
 5. Build a clip decision list first, then render the final output video.
 6. To draft the clip list automatically, run [generate_manifest_draft.py](tools/generate_manifest_draft.py) on the source video. The draft generator pre-filters audio (highpass + lowpass + spectral denoise) to suppress voice and ambient noise, detects ball-impact onsets, and groups onsets into rhythm-based rally sequences as candidate clips.
 7. For automatic rendering, run [render_from_manifest.py](tools/render_from_manifest.py) on the manifest. See [auto-render-guide.md](references/auto-render-guide.md).
-8. Apply dual-path execution: automatic render first; if unstable or ambiguous, fall back to semi-automatic review of the candidate manifest or to CapCut/Jianying manual export.
-9. Treat the auto draft as candidate-only. Recall is high (typical KEEP+REVIEW coverage ~85-90%) but ranked KEEP precision is limited; human review of the candidate list is recommended before final render.
-10. Return bilingual output by default: Chinese primary result plus concise English summary.
+8. For interactive clip review (browser UI), launch the review tool at `apps/review-tool/server.py` from the repo root.
+9. Apply dual-path execution: automatic render first; if unstable or ambiguous, fall back to semi-automatic review of the candidate manifest or to CapCut/Jianying manual export.
+10. Treat the auto draft as candidate-only. Recall is high (typical KEEP+REVIEW coverage ~85-90%) but ranked KEEP precision is limited; human review of the candidate list is recommended before final render.
+11. Return bilingual output by default: Chinese primary result plus concise English summary.
 
 ## Default Stance
 

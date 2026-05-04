@@ -29,11 +29,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 ROOT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = ROOT_DIR.parent.parent.parent  # AgentCollection/
-TOOLS_DIR = ROOT_DIR
-PAGE_FILE = TOOLS_DIR / "clip_app.html"
-GENERATE_SCRIPT = TOOLS_DIR / "generate_manifest_draft.py"
-RENDER_SCRIPT = TOOLS_DIR / "render_from_manifest.py"
+PROJECT_ROOT = ROOT_DIR.parent.parent  # repo root
+PAGE_FILE = ROOT_DIR / "clip_app.html"
+SKILL_TOOLS_DIR = PROJECT_ROOT / "skills" / "tennis-match-video-editing" / "tools"
+GENERATE_SCRIPT = SKILL_TOOLS_DIR / "generate_manifest_draft.py"
+RENDER_SCRIPT = SKILL_TOOLS_DIR / "render_from_manifest.py"
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
 AUDIO_EXTS = {".m4a", ".aac", ".mp3", ".wav", ".flac", ".ogg"}
