@@ -26,7 +26,7 @@ class RallyParams:
     # finding from Task 9 acceptance.
     static_window_s: float = 1.0
     max_rally_duration_s: float = 30.0  # discard rallies longer than this
-    max_hits_per_second: float = 1.5    # discard rallies with hits/s above this (warm-up rejection)
+    min_ball_y_range_px: float = 250.0  # discard rallies where ball y-range is too narrow (warm-up cross-hitting stays near the baseline)
 
 
 def _read_ball_csv(csv_path: Path) -> list[tuple[int, float | None, float | None]]:
@@ -131,6 +131,38 @@ def _read_players_in_window(players_csv: Path | None,
     return "unknown", counts
 
 
+def filter_narrow_y_range(rallies: list[dict], ball_csv: Path, fps: float,
+                          min_y_range_px: float) -> list[dict]:
+    """Drop rallies whose ball trajectory y-range is below threshold.
+
+    Real rallies have the ball arc over the net (y-range typically >350px on
+    1080p footage). Warm-up cross-hitting near the baseline gives a much
+    narrower y-range (<250px). This is a more reliable discriminator than
+    hit-rate, which is similar in both cases.
+    """
+    if not rallies:
+        return []
+    # Read ball CSV once, build a frame -> y map
+    y_by_frame: dict[int, float] = {}
+    with ball_csv.open() as f:
+        for row in csv.DictReader(f):
+            if row["y"]:
+                y_by_frame[int(row["frame"])] = float(row["y"])
+    out = []
+    for r in rallies:
+        f0 = int(r["start_t"] * fps)
+        f1 = int(r["end_t"] * fps)
+        ys = [y_by_frame[f] for f in range(f0, f1 + 1) if f in y_by_frame]
+        if len(ys) < 5:
+            # Too few detections to judge; keep it (don't penalize already-sparse rallies)
+            out.append(r)
+            continue
+        y_range = max(ys) - min(ys)
+        if y_range >= min_y_range_px:
+            out.append(r)
+    return out
+
+
 def filter_too_long(rallies: list[dict], max_duration_s: float) -> list[dict]:
     """Drop rallies whose duration exceeds max_duration_s.
 
@@ -138,23 +170,6 @@ def filter_too_long(rallies: list[dict], max_duration_s: float) -> list[dict]:
     warm-up cross-hitting or boundary detection failures.
     """
     return [r for r in rallies if (r["end_t"] - r["start_t"]) <= max_duration_s]
-
-
-def filter_too_dense(rallies: list[dict], max_hits_per_s: float) -> list[dict]:
-    """Drop rallies with hit_rate above max_hits_per_s.
-
-    Real rallies have 1-3s between shots (0.3-0.8 hits/s); warm-up
-    cross-hitting can hit 3+ hits/s.
-    """
-    out = []
-    for r in rallies:
-        dur = r["end_t"] - r["start_t"]
-        if dur <= 0:
-            continue
-        hit_rate = r["n_hits"] / dur
-        if hit_rate <= max_hits_per_s:
-            out.append(r)
-    return out
 
 
 def resolve_overlaps(rallies: list[dict]) -> list[dict]:
@@ -227,14 +242,14 @@ def segment(ball_csv: Path, players_csv: Path | None, meta: dict,
         })
 
     n_initial = len(rallies)
-    rallies = filter_too_dense(rallies, params.max_hits_per_second)
-    n_after_dense = len(rallies)
+    rallies = filter_narrow_y_range(rallies, ball_csv, fps, params.min_ball_y_range_px)
+    n_after_yrange = len(rallies)
     rallies = filter_too_long(rallies, params.max_rally_duration_s)
     n_after_long = len(rallies)
     rallies = resolve_overlaps(rallies)
     n_after_overlap = len(rallies)
-    print(f"  filter: {n_initial} initial → {n_after_dense} (-dense) → "
-          f"{n_after_long} (-long) → {n_after_overlap} (-overlap)")
+    print(f"  filter: {n_initial} initial -> {n_after_yrange} (-narrow y) -> "
+          f"{n_after_long} (-long) -> {n_after_overlap} (-overlap)")
 
     for i, r in enumerate(rallies, start=1):
         r["id"] = f"R{i:03d}"

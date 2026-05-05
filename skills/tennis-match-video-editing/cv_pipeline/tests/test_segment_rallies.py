@@ -2,7 +2,7 @@ import json
 
 from cv_pipeline.segment_rallies import (
     find_continuous_runs, count_hits_in_run, segment, RallyParams,
-    filter_too_long, filter_too_dense, resolve_overlaps,
+    filter_too_long, resolve_overlaps, filter_narrow_y_range,
 )
 
 
@@ -59,18 +59,6 @@ def test_filter_too_long_drops_overlong():
     assert [r["id"] for r in out] == ["R001", "R003"]
 
 
-def test_filter_too_dense_drops_warmup():
-    rallies = [
-        {"id": "R001", "start_t": 0.0, "end_t": 10.0, "n_hits": 8, "score": 4.0,    # 0.8 hits/s — OK
-         "match_type": "singles", "kept": True, "max_ball_speed_kmh": 0.0},
-        {"id": "R002", "start_t": 20.0, "end_t": 50.0, "n_hits": 100, "score": 50.0, # 3.3 hits/s — warm-up
-         "match_type": "singles", "kept": True, "max_ball_speed_kmh": 0.0},
-    ]
-    out = filter_too_dense(rallies, max_hits_per_s=1.5)
-    assert len(out) == 1
-    assert out[0]["id"] == "R001"
-
-
 def test_resolve_overlaps_pushes_later_start():
     rallies = [
         {"id": "R001", "start_t": 0.0, "end_t": 10.0, "n_hits": 8, "score": 4.0,
@@ -94,3 +82,49 @@ def test_resolve_overlaps_drops_zero_length():
     ]
     out = resolve_overlaps(rallies)
     assert len(out) == 1  # R002 dropped because pushed start (10.0) >= end (9.0)
+
+
+def test_filter_narrow_y_range_drops_low_arc(tmp_path):
+    """Rally with narrow y trajectory (warm-up at baseline) is dropped;
+    rally with high arc (real point) is kept."""
+    ball_csv = tmp_path / "ball.csv"
+    fps = 60.0
+    # Frames 0-149: rally A, narrow y range (500-600 = 100px)
+    # Frames 200-349: rally B, wide y range (200-700 = 500px)
+    lines = ["frame,t,x,y,conf"]
+    for fi in range(150):
+        y = 500 + 100 * (fi % 2)  # alternates 500/600
+        lines.append(f"{fi},{fi/fps:.4f},400.0,{y:.1f},0.5")
+    for fi in range(150, 200):
+        lines.append(f"{fi},{fi/fps:.4f},,,")  # gap
+    for fi in range(200, 350):
+        y = 200 + 500 * (fi % 2)  # alternates 200/700
+        lines.append(f"{fi},{fi/fps:.4f},400.0,{y:.1f},0.5")
+    ball_csv.write_text("\n".join(lines) + "\n")
+
+    rallies = [
+        {"id": "R001", "start_t": 0.0, "end_t": 149/60.0, "n_hits": 30, "score": 15.0,
+         "match_type": "singles", "kept": True, "max_ball_speed_kmh": 0.0},
+        {"id": "R002", "start_t": 200/60.0, "end_t": 349/60.0, "n_hits": 30, "score": 15.0,
+         "match_type": "singles", "kept": True, "max_ball_speed_kmh": 0.0},
+    ]
+    out = filter_narrow_y_range(rallies, ball_csv, fps, min_y_range_px=250.0)
+    assert len(out) == 1
+    assert out[0]["id"] == "R002"
+
+
+def test_filter_narrow_y_range_keeps_sparse_rallies(tmp_path):
+    """A rally with very few ball detections is kept (not enough data to judge)."""
+    ball_csv = tmp_path / "ball.csv"
+    fps = 60.0
+    lines = ["frame,t,x,y,conf"]
+    for fi in range(150):
+        if fi % 50 == 0:  # only 3 detections in 150 frames
+            lines.append(f"{fi},{fi/fps:.4f},400.0,500.0,0.5")
+        else:
+            lines.append(f"{fi},{fi/fps:.4f},,,")
+    ball_csv.write_text("\n".join(lines) + "\n")
+    rallies = [{"id": "R001", "start_t": 0.0, "end_t": 149/60.0, "n_hits": 5, "score": 3.0,
+                "match_type": "singles", "kept": True, "max_ball_speed_kmh": 0.0}]
+    out = filter_narrow_y_range(rallies, ball_csv, fps, min_y_range_px=250.0)
+    assert len(out) == 1
