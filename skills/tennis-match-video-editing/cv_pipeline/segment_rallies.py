@@ -20,7 +20,11 @@ class RallyParams:
     min_frames_between_hits: int = 12  # avoid double-counting jitter
     pre_pad_s: float = 1.0
     post_pad_s: float = 1.5
-    static_window_s: float = 1.0   # players-static window for end refinement
+    # static_window_s is reserved for boundary refinement (use player-stillness
+    # to trim the rally end). Not used in the MVP — pre_pad_s / post_pad_s are
+    # constant. Tracked as a Plan B/C tuning lever for the highlight-too-long
+    # finding from Task 9 acceptance.
+    static_window_s: float = 1.0
 
 
 def _read_ball_csv(csv_path: Path) -> list[tuple[int, float | None, float | None]]:

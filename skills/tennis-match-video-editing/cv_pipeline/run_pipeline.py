@@ -98,15 +98,20 @@ def run(video: Path, job_dir: Path, device: str = "0",
         # Stage 5
         if "render" not in skip:
             t0 = time.time()
+            # Prefer user-edited segments file if it exists; otherwise use the auto-generated one.
+            segments_user = job_dir / "segments.user.json"
+            segments_in = segments_user if segments_user.exists() else job_dir / "segments.json"
+            if segments_in == segments_user:
+                log(f"      using user-edited {segments_user.name}")
             if render_mode in ("highlight", "both"):
                 label = "[5/5]" if render_mode == "highlight" else "[5/5 a]"
                 log(f"{label} render highlight -> highlight.mp4")
-                render.render(video, job_dir / "segments.json",
+                render.render(video, segments_in,
                               job_dir / "highlight.mp4", mode="highlight")
             if render_mode in ("short", "both"):
                 label = "[5/5]" if render_mode == "short" else "[5/5 b]"
                 log(f"{label} render short -> short.mp4")
-                render.render(video, job_dir / "segments.json",
+                render.render(video, segments_in,
                               job_dir / "short.mp4", mode="short")
             timings["render"] = time.time() - t0
             log(f"      render done in {timings['render']:.0f}s")
