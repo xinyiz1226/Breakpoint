@@ -115,6 +115,8 @@ def _read_players_in_window(players_csv: Path | None,
                 counts.append(int(row["n_players"]))
     if not counts:
         return "unknown", []
+    # statistics.mode in Python 3.8+ returns the smallest value when there are
+    # ties (e.g. [2,2,4,4] → 2), which biases toward "singles" in ambiguous frames.
     mode = statistics.mode(counts)
     if mode == 2:
         return "singles", counts
@@ -128,11 +130,14 @@ def segment(ball_csv: Path, players_csv: Path | None, meta: dict,
     """Full Stage-4 pipeline. Returns the dict written to out_segments."""
     if params is None:
         params = RallyParams()
+    if "fps" not in meta:
+        raise ValueError(f"meta dict missing required 'fps' key (got keys: {sorted(meta)})")
     fps = float(meta["fps"])
 
     runs = find_continuous_runs(ball_csv, min_run_frames=params.min_run_frames)
     rallies = []
-    for i, (f_start, f_end) in enumerate(runs):
+    kept_idx = 0
+    for f_start, f_end in runs:
         n_hits = count_hits_in_run(
             ball_csv, (f_start, f_end),
             min_frames_between=params.min_frames_between_hits,
@@ -144,14 +149,17 @@ def segment(ball_csv: Path, players_csv: Path | None, meta: dict,
         start_t = max(0.0, f_start / fps - params.pre_pad_s)
         end_t = f_end / fps + params.post_pad_s
 
+        # Score formula: n_hits weighted highest, then duration (which includes
+        # pre_pad+post_pad ≈ 2.5s of margin — small constant offset is intentional).
+        # max_ball_speed_kmh placeholder for v2.
         score = (
             n_hits * 0.5
             + (end_t - start_t) * 0.2
-            # max_ball_speed left as 0.0 in MVP; v2 will compute from ball.csv
         )
 
+        kept_idx += 1
         rallies.append({
-            "id": f"R{i+1:03d}",
+            "id": f"R{kept_idx:03d}",
             "start_t": round(start_t, 3),
             "end_t": round(end_t, 3),
             "n_hits": n_hits,

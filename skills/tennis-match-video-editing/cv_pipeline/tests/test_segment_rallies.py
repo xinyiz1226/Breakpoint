@@ -1,3 +1,5 @@
+import json
+
 from cv_pipeline.segment_rallies import (
     find_continuous_runs, count_hits_in_run, segment, RallyParams,
 )
@@ -34,7 +36,6 @@ def test_segment_full_pipeline_one_rally(data_dir, tmp_job_dir):
         out_segments=out,
         params=RallyParams(min_run_frames=90, min_hits=3),
     )
-    import json
     data = json.loads(out.read_text())
     assert len(data["rallies"]) == 1
     r = data["rallies"][0]
