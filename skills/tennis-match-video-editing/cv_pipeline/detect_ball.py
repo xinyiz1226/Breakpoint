@@ -20,6 +20,10 @@ def filter_jumps(rows: list[tuple], max_jump: float = 200.0) -> list[tuple]:
     """Drop frames whose ball is > max_jump px away from BOTH neighbors.
 
     rows: list of (frame, x, y, conf). Returns filtered list.
+
+    First and last frames are always kept (no neighbors on one side to compare),
+    so a large jump at the edges is preserved. This is acceptable because rallies
+    are detected by long runs of detections, not by single-frame outliers at edges.
     """
     if len(rows) < 3:
         return list(rows)
@@ -42,6 +46,11 @@ def detect(video: Path, out_csv: Path, conf_thresh: float = 0.15,
     """Run YOLOv5 across video → write ball.csv. Returns summary dict."""
     from ultralytics import YOLO
 
+    if not paths.YOLOV5_BALL.exists():
+        raise FileNotFoundError(
+            f"YOLOv5 ball model not found at {paths.YOLOV5_BALL} "
+            f"(set BREAKPOINT_WEIGHTS_DIR to override)"
+        )
     model = YOLO(str(paths.YOLOV5_BALL))
 
     cap = cv2.VideoCapture(str(video))
@@ -83,7 +92,6 @@ def detect(video: Path, out_csv: Path, conf_thresh: float = 0.15,
     filtered = filter_jumps(raw_rows, max_jump=200.0)
 
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    detected_frames = {r[0] for r in filtered}
     with out_csv.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["frame", "t", "x", "y", "conf"])

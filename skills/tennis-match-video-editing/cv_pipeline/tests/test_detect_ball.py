@@ -1,5 +1,3 @@
-import csv
-
 from cv_pipeline.detect_ball import filter_jumps
 
 
