@@ -1,0 +1,8 @@
+{
+  "$schema_doc": "Each entry has id (slug); paths live in tests/fixtures.local.json (gitignored).",
+  "videos": [
+    {"id": "dji_0532"},
+    {"id": "dji_0533"},
+    {"id": "dji_0534"}
+  ]
+}

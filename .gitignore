@@ -2,3 +2,7 @@
 **/.DS_Store
 .venv/
 tmp/
+.claude/settings.local.json
+tests/fixtures.local.json
+jobs/
+__pycache__/
