@@ -9,8 +9,7 @@ import pytest
 
 # sys.path injection so test files can do `from cv_pipeline import ...`
 # despite the hyphenated parent directory (tennis-match-video-editing)
-sys.path.insert(0, str(Path(__file__).resolve().parents[1].parent))  # ...editing/
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))         # ...editing/cv_pipeline/
+sys.path.insert(0, str(Path(__file__).resolve().parents[1].parent))  # parent of cv_pipeline package
 
 DATA_DIR = Path(__file__).parent / "data"
 

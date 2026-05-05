@@ -1,7 +1,7 @@
 """One-shot env check. Run before Task 2.
 
-Usage:
-    python -m skills.tennis-match-video-editing.cv_pipeline.check_env
+Usage (from skills/tennis-match-video-editing/):
+    python -m cv_pipeline.check_env
 """
 
 from __future__ import annotations
@@ -24,7 +24,12 @@ def main() -> int:
             failures.append(f"{label} not found: {binpath}")
         else:
             r = subprocess.run([resolved, "-version"], capture_output=True, text=True)
-            print(f"  {label}: {r.stdout.splitlines()[0]}")
+            if r.returncode != 0:
+                failures.append(f"{label} exited {r.returncode}: {r.stderr[:200]}")
+            else:
+                first_line = (r.stdout or r.stderr).splitlines()
+                version_line = first_line[0] if first_line else "(no version output)"
+                print(f"  {label}: {version_line}")
 
     # weights
     if paths.YOLOV5_BALL.exists():

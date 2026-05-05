@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -20,7 +19,7 @@ FFMPEG = os.environ.get(
 )
 FFPROBE = os.environ.get(
     "BREAKPOINT_FFPROBE",
-    FFMPEG.replace("ffmpeg.exe", "ffprobe.exe"),
+    str(Path(FFMPEG).parent / "ffprobe.exe"),
 )
 
 # Model weights
