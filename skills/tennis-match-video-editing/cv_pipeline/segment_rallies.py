@@ -25,6 +25,8 @@ class RallyParams:
     # constant. Tracked as a Plan B/C tuning lever for the highlight-too-long
     # finding from Task 9 acceptance.
     static_window_s: float = 1.0
+    max_rally_duration_s: float = 30.0  # discard rallies longer than this
+    max_hits_per_second: float = 1.5    # discard rallies with hits/s above this (warm-up rejection)
 
 
 def _read_ball_csv(csv_path: Path) -> list[tuple[int, float | None, float | None]]:
@@ -129,6 +131,57 @@ def _read_players_in_window(players_csv: Path | None,
     return "unknown", counts
 
 
+def filter_too_long(rallies: list[dict], max_duration_s: float) -> list[dict]:
+    """Drop rallies whose duration exceeds max_duration_s.
+
+    Real tennis rallies cap around 20-30s; longer segments are usually
+    warm-up cross-hitting or boundary detection failures.
+    """
+    return [r for r in rallies if (r["end_t"] - r["start_t"]) <= max_duration_s]
+
+
+def filter_too_dense(rallies: list[dict], max_hits_per_s: float) -> list[dict]:
+    """Drop rallies with hit_rate above max_hits_per_s.
+
+    Real rallies have 1-3s between shots (0.3-0.8 hits/s); warm-up
+    cross-hitting can hit 3+ hits/s.
+    """
+    out = []
+    for r in rallies:
+        dur = r["end_t"] - r["start_t"]
+        if dur <= 0:
+            continue
+        hit_rate = r["n_hits"] / dur
+        if hit_rate <= max_hits_per_s:
+            out.append(r)
+    return out
+
+
+def resolve_overlaps(rallies: list[dict]) -> list[dict]:
+    """Sort by start_t; if rally[i+1] overlaps rally[i], push the later start.
+
+    Drops rallies that become zero-length after the push.
+    Recomputes score for any rally whose duration changed.
+    """
+    if not rallies:
+        return []
+    rallies = sorted(rallies, key=lambda r: r["start_t"])
+    out = [dict(rallies[0])]  # shallow copy first one
+    for r in rallies[1:]:
+        prev_end = out[-1]["end_t"]
+        cur = dict(r)
+        if cur["start_t"] < prev_end:
+            cur["start_t"] = prev_end
+            if cur["start_t"] >= cur["end_t"]:
+                continue  # zero-length after push, discard
+            # Recompute score with new duration
+            new_dur = cur["end_t"] - cur["start_t"]
+            cur["score"] = round(cur["n_hits"] * 0.5 + new_dur * 0.2, 3)
+            cur["start_t"] = round(cur["start_t"], 3)
+        out.append(cur)
+    return out
+
+
 def segment(ball_csv: Path, players_csv: Path | None, meta: dict,
             out_segments: Path, params: RallyParams = None) -> dict:
     """Full Stage-4 pipeline. Returns the dict written to out_segments."""
@@ -172,6 +225,19 @@ def segment(ball_csv: Path, players_csv: Path | None, meta: dict,
             "match_type": match_type,
             "kept": True,
         })
+
+    n_initial = len(rallies)
+    rallies = filter_too_dense(rallies, params.max_hits_per_second)
+    n_after_dense = len(rallies)
+    rallies = filter_too_long(rallies, params.max_rally_duration_s)
+    n_after_long = len(rallies)
+    rallies = resolve_overlaps(rallies)
+    n_after_overlap = len(rallies)
+    print(f"  filter: {n_initial} initial → {n_after_dense} (-dense) → "
+          f"{n_after_long} (-long) → {n_after_overlap} (-overlap)")
+
+    for i, r in enumerate(rallies, start=1):
+        r["id"] = f"R{i:03d}"
 
     payload = {
         "fps": fps,
