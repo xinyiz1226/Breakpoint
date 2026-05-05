@@ -10,6 +10,7 @@ def test_probe_writes_meta_json(data_dir, tmp_job_dir):
     decode.probe(src, out)
 
     meta = json.loads(out.read_text())
+    # tiny_5s_clip.mp4 is generated as 640x360 @ 30fps for 5s
     assert meta["w"] == 640
     assert meta["h"] == 360
     assert 29.0 <= meta["fps"] <= 31.0

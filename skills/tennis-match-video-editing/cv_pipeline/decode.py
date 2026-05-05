@@ -25,7 +25,10 @@ def probe(video: Path, out_meta: Path) -> dict:
         str(video),
     ]
     t0 = time.time()
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError(f"ffprobe binary not found: {paths.FFPROBE!r}") from None
     if r.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {r.stderr}")
     raw = json.loads(r.stdout)
@@ -43,7 +46,7 @@ def probe(video: Path, out_meta: Path) -> dict:
         n_frames = int(n_frames)
 
     meta = {
-        "video_path": str(video),
+        "video_path": Path(video).as_posix(),
         "w": int(stream["width"]),
         "h": int(stream["height"]),
         "fps": fps,
