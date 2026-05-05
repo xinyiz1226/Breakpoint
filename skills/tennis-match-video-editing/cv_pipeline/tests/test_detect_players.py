@@ -17,6 +17,7 @@ def test_filter_persons_caps_at_max_n_by_y():
     persons = [(0, y, 50, y + 100, 0.9) for y in range(600, 1100, 50)]  # 10 boxes lower half
     kept = filter_persons(persons, frame_h=1080, max_n=4)
     assert len(kept) == 4
-    # should keep the lowest (largest y2)
-    y2_vals = sorted([p[3] for p in kept], reverse=True)
-    assert y2_vals == sorted(y2_vals, reverse=True)
+    # filter_persons keeps the boxes with the largest y2 (most "bottom" in frame)
+    kept_y2 = sorted(p[3] for p in kept)
+    assert kept_y2 == [1000, 1050, 1100, 1150]
+
