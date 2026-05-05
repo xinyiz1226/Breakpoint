@@ -44,6 +44,11 @@ def render(source_video: Path, segments_json: Path, out: Path,
 
     if mode == "short":
         rallies = _select_for_short(rallies)
+        if not rallies:
+            raise RuntimeError(
+                "no rally fits within short-mode target_max; "
+                "all rallies individually exceed the limit"
+            )
 
     with tempfile.TemporaryDirectory(prefix="bp_render_") as tmp:
         tmpdir = Path(tmp)
