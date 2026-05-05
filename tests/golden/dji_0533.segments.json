@@ -1,0 +1,405 @@
+{
+  "fps": 59.94005994005994,
+  "rallies": [
+    {
+      "id": "R001",
+      "start_t": 4.289,
+      "end_t": 55.37,
+      "n_hits": 209,
+      "max_ball_speed_kmh": 0.0,
+      "score": 114.716,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R002",
+      "start_t": 53.471,
+      "end_t": 83.198,
+      "n_hits": 120,
+      "max_ball_speed_kmh": 0.0,
+      "score": 65.945,
+      "match_type": "singles",
+      "kept": true
+    },
+    {
+      "id": "R003",
+      "start_t": 81.149,
+      "end_t": 85.434,
+      "n_hits": 7,
+      "max_ball_speed_kmh": 0.0,
+      "score": 4.357,
+      "match_type": "singles",
+      "kept": true
+    },
+    {
+      "id": "R004",
+      "start_t": 89.857,
+      "end_t": 93.859,
+      "n_hits": 6,
+      "max_ball_speed_kmh": 0.0,
+      "score": 3.8,
+      "match_type": "singles",
+      "kept": true
+    },
+    {
+      "id": "R005",
+      "start_t": 112.013,
+      "end_t": 117.299,
+      "n_hits": 7,
+      "max_ball_speed_kmh": 0.0,
+      "score": 4.557,
+      "match_type": "singles",
+      "kept": true
+    },
+    {
+      "id": "R006",
+      "start_t": 128.896,
+      "end_t": 144.526,
+      "n_hits": 54,
+      "max_ball_speed_kmh": 0.0,
+      "score": 30.126,
+      "match_type": "singles",
+      "kept": true
+    },
+    {
+      "id": "R007",
+      "start_t": 142.276,
+      "end_t": 146.712,
+      "n_hits": 4,
+      "max_ball_speed_kmh": 0.0,
+      "score": 2.887,
+      "match_type": "singles",
+      "kept": true
+    },
+    {
+      "id": "R008",
+      "start_t": 146.581,
+      "end_t": 154.486,
+      "n_hits": 19,
+      "max_ball_speed_kmh": 0.0,
+      "score": 11.081,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R009",
+      "start_t": 412.129,
+      "end_t": 421.636,
+      "n_hits": 31,
+      "max_ball_speed_kmh": 0.0,
+      "score": 17.401,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R010",
+      "start_t": 419.453,
+      "end_t": 423.905,
+      "n_hits": 9,
+      "max_ball_speed_kmh": 0.0,
+      "score": 5.39,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R011",
+      "start_t": 430.014,
+      "end_t": 435.801,
+      "n_hits": 13,
+      "max_ball_speed_kmh": 0.0,
+      "score": 7.657,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R012",
+      "start_t": 436.137,
+      "end_t": 441.573,
+      "n_hits": 11,
+      "max_ball_speed_kmh": 0.0,
+      "score": 6.587,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R013",
+      "start_t": 439.64,
+      "end_t": 458.373,
+      "n_hits": 67,
+      "max_ball_speed_kmh": 0.0,
+      "score": 37.247,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R014",
+      "start_t": 456.14,
+      "end_t": 478.226,
+      "n_hits": 79,
+      "max_ball_speed_kmh": 0.0,
+      "score": 43.917,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R015",
+      "start_t": 477.528,
+      "end_t": 481.88,
+      "n_hits": 6,
+      "max_ball_speed_kmh": 0.0,
+      "score": 3.87,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R016",
+      "start_t": 479.73,
+      "end_t": 485.417,
+      "n_hits": 13,
+      "max_ball_speed_kmh": 0.0,
+      "score": 7.637,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R017",
+      "start_t": 484.602,
+      "end_t": 492.09,
+      "n_hits": 20,
+      "max_ball_speed_kmh": 0.0,
+      "score": 11.498,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R018",
+      "start_t": 489.84,
+      "end_t": 496.011,
+      "n_hits": 15,
+      "max_ball_speed_kmh": 0.0,
+      "score": 8.734,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R019",
+      "start_t": 493.761,
+      "end_t": 506.171,
+      "n_hits": 40,
+      "max_ball_speed_kmh": 0.0,
+      "score": 22.482,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R020",
+      "start_t": 504.939,
+      "end_t": 516.464,
+      "n_hits": 36,
+      "max_ball_speed_kmh": 0.0,
+      "score": 20.305,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R021",
+      "start_t": 516.667,
+      "end_t": 523.271,
+      "n_hits": 15,
+      "max_ball_speed_kmh": 0.0,
+      "score": 8.821,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R022",
+      "start_t": 522.423,
+      "end_t": 526.942,
+      "n_hits": 7,
+      "max_ball_speed_kmh": 0.0,
+      "score": 4.404,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R023",
+      "start_t": 525.676,
+      "end_t": 533.899,
+      "n_hits": 23,
+      "max_ball_speed_kmh": 0.0,
+      "score": 13.144,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R024",
+      "start_t": 533.367,
+      "end_t": 546.828,
+      "n_hits": 48,
+      "max_ball_speed_kmh": 0.0,
+      "score": 26.692,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R025",
+      "start_t": 983.467,
+      "end_t": 987.552,
+      "n_hits": 4,
+      "max_ball_speed_kmh": 0.0,
+      "score": 2.817,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R026",
+      "start_t": 1491.024,
+      "end_t": 1495.259,
+      "n_hits": 4,
+      "max_ball_speed_kmh": 0.0,
+      "score": 2.847,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R027",
+      "start_t": 1505.655,
+      "end_t": 1509.707,
+      "n_hits": 6,
+      "max_ball_speed_kmh": 0.0,
+      "score": 3.81,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R028",
+      "start_t": 1551.935,
+      "end_t": 1558.122,
+      "n_hits": 13,
+      "max_ball_speed_kmh": 0.0,
+      "score": 7.737,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R029",
+      "start_t": 1557.457,
+      "end_t": 1587.017,
+      "n_hits": 112,
+      "max_ball_speed_kmh": 0.0,
+      "score": 61.912,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R030",
+      "start_t": 1585.185,
+      "end_t": 1589.203,
+      "n_hits": 4,
+      "max_ball_speed_kmh": 0.0,
+      "score": 2.804,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R031",
+      "start_t": 1602.886,
+      "end_t": 1607.454,
+      "n_hits": 6,
+      "max_ball_speed_kmh": 0.0,
+      "score": 3.914,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R032",
+      "start_t": 1632.398,
+      "end_t": 1636.383,
+      "n_hits": 5,
+      "max_ball_speed_kmh": 0.0,
+      "score": 3.297,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R033",
+      "start_t": 1637.487,
+      "end_t": 1641.689,
+      "n_hits": 7,
+      "max_ball_speed_kmh": 0.0,
+      "score": 4.34,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R034",
+      "start_t": 1639.806,
+      "end_t": 1644.641,
+      "n_hits": 9,
+      "max_ball_speed_kmh": 0.0,
+      "score": 5.467,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R035",
+      "start_t": 1643.076,
+      "end_t": 1649.396,
+      "n_hits": 15,
+      "max_ball_speed_kmh": 0.0,
+      "score": 8.764,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R036",
+      "start_t": 1647.48,
+      "end_t": 1653.384,
+      "n_hits": 14,
+      "max_ball_speed_kmh": 0.0,
+      "score": 8.181,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R037",
+      "start_t": 1651.918,
+      "end_t": 1658.722,
+      "n_hits": 17,
+      "max_ball_speed_kmh": 0.0,
+      "score": 9.861,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R038",
+      "start_t": 1668.935,
+      "end_t": 1673.07,
+      "n_hits": 6,
+      "max_ball_speed_kmh": 0.0,
+      "score": 3.827,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R039",
+      "start_t": 1791.324,
+      "end_t": 1799.213,
+      "n_hits": 18,
+      "max_ball_speed_kmh": 0.0,
+      "score": 10.578,
+      "match_type": "unknown",
+      "kept": true
+    },
+    {
+      "id": "R040",
+      "start_t": 1896.045,
+      "end_t": 1901.014,
+      "n_hits": 4,
+      "max_ball_speed_kmh": 0.0,
+      "score": 2.994,
+      "match_type": "unknown",
+      "kept": true
+    }
+  ]
+}
