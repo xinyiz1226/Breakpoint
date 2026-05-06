@@ -26,7 +26,7 @@ class RallyParams:
     # finding from Task 9 acceptance.
     static_window_s: float = 1.0
     max_rally_duration_s: float = 30.0  # discard rallies longer than this
-    min_ball_y_range_px: float = 250.0  # discard rallies where ball y-range is too narrow (warm-up cross-hitting stays near the baseline)
+    min_ball_y_range_px: float = 150.0  # warm-up baseline cross-hitting gives <150px; real rallies >250px arc over net
 
 
 def _read_ball_csv(csv_path: Path) -> list[tuple[int, float | None, float | None]]:
