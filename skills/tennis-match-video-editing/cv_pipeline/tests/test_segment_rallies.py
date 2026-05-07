@@ -1,8 +1,8 @@
 import json
 
 from cv_pipeline.segment_rallies import (
-    find_continuous_runs, count_hits_in_run, segment, RallyParams,
-    filter_too_long, resolve_overlaps, filter_narrow_y_range,
+    find_continuous_runs, find_density_runs, count_hits_in_run, segment,
+    RallyParams, filter_too_long, resolve_overlaps, filter_narrow_y_range,
 )
 
 
@@ -128,3 +128,57 @@ def test_filter_narrow_y_range_keeps_sparse_rallies(tmp_path):
                 "match_type": "singles", "kept": True, "max_ball_speed_kmh": 0.0}]
     out = filter_narrow_y_range(rallies, ball_csv, fps, min_y_range_px=250.0)
     assert len(out) == 1
+
+
+def test_find_density_runs_sparse_detections(tmp_path):
+    """Density finder should detect rally zones even at ~5% detection rate."""
+    ball_csv = tmp_path / "ball.csv"
+    fps = 60.0
+    lines = ["frame,t,x,y,conf"]
+    import random
+    rng = random.Random(42)
+    det_frames = set(rng.sample(range(600), 30))
+    for fi in range(600):
+        if fi in det_frames:
+            y = 300 + 200 * ((fi // 30) % 2)
+            lines.append(f"{fi},{fi/fps:.4f},500.0,{y:.1f},0.5")
+        else:
+            lines.append(f"{fi},{fi/fps:.4f},,,")
+    for fi in range(600, 1200):
+        lines.append(f"{fi},{fi/fps:.4f},,,")
+    ball_csv.write_text("\n".join(lines) + "\n")
+
+    runs = find_density_runs(ball_csv, fps, window_s=5, threshold=0.03)
+    assert len(runs) >= 1
+    assert runs[0][0] < 60
+    assert runs[0][1] >= 300
+
+
+def test_density_fallback_in_segment(tmp_path):
+    """segment() should auto-switch to density mode for low detection rate."""
+    ball_csv = tmp_path / "ball.csv"
+    fps = 60.0
+    lines = ["frame,t,x,y,conf"]
+    import random
+    rng = random.Random(99)
+    det_frames = sorted(rng.sample(range(1800), 54))
+    for fi in range(1800):
+        if fi in det_frames:
+            y = 300 + 300 * (fi % 2)
+            lines.append(f"{fi},{fi/fps:.4f},500.0,{y:.1f},0.5")
+        else:
+            lines.append(f"{fi},{fi/fps:.4f},,,")
+    ball_csv.write_text("\n".join(lines) + "\n")
+
+    out_seg = tmp_path / "segments.json"
+    params = RallyParams(
+        min_run_frames=90, min_hits=2,
+        density_window_s=10, density_threshold=0.02,
+        density_fallback_rate=0.15,
+        max_rally_duration_s=60.0,
+    )
+    payload = segment(
+        ball_csv=ball_csv, players_csv=None,
+        meta={"fps": fps}, out_segments=out_seg, params=params,
+    )
+    assert len(payload["rallies"]) >= 1

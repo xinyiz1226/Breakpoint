@@ -27,6 +27,10 @@ class RallyParams:
     static_window_s: float = 1.0
     max_rally_duration_s: float = 30.0  # discard rallies longer than this
     min_ball_y_range_px: float = 150.0  # warm-up baseline cross-hitting gives <150px; real rallies >250px arc over net
+    density_window_s: float = 10.0
+    density_threshold: float = 0.05     # 5% detection rate within window
+    density_merge_gap_s: float = 3.0
+    density_fallback_rate: float = 0.20  # use density mode when overall rate < this
 
 
 def _read_ball_csv(csv_path: Path) -> list[tuple[int, float | None, float | None]]:
@@ -73,6 +77,88 @@ def find_continuous_runs(ball_csv: Path, min_run_frames: int = 90,
         if last_seen - cur_start + 1 >= min_run_frames:
             runs.append((cur_start, last_seen))
     return runs
+
+
+def find_density_runs(ball_csv: Path, fps: float,
+                      window_s: float = 10.0, threshold: float = 0.05,
+                      merge_gap_s: float = 3.0,
+                      max_zone_s: float = 30.0) -> list[tuple[int, int]]:
+    """Return [(start_frame, end_frame), ...] using density sliding window.
+
+    For videos with low ball-detection rate (< ~15%), the gap-based
+    find_continuous_runs shatters rallies into tiny fragments.  This function
+    counts detections per second, slides a window of `window_s` seconds, and
+    marks zones where the detection rate >= `threshold`.  Adjacent zones
+    within `merge_gap_s` are merged.  Zones longer than `max_zone_s` are
+    recursively split at the quietest second.
+    """
+    rows = _read_ball_csv(ball_csv)
+    if not rows:
+        return []
+
+    # Per-second detection counts
+    max_sec = int(rows[-1][0] / fps)
+    det_per_sec: dict[int, int] = {}
+    total_per_sec: dict[int, int] = {}
+    for f_idx, x, _ in rows:
+        sec = int(f_idx / fps)
+        total_per_sec[sec] = total_per_sec.get(sec, 0) + 1
+        if x is not None:
+            det_per_sec[sec] = det_per_sec.get(sec, 0) + 1
+
+    window = int(window_s)
+    active_secs: list[bool] = [False] * (max_sec + 1)
+    for t in range(max_sec - window + 2):
+        detected = sum(det_per_sec.get(t + i, 0) for i in range(window))
+        total = sum(total_per_sec.get(t + i, 0) for i in range(window))
+        if total > 0 and detected / total >= threshold:
+            for i in range(window):
+                if t + i <= max_sec:
+                    active_secs[t + i] = True
+
+    # Build zones from active seconds, merge gaps <= merge_gap_s
+    zones: list[tuple[int, int]] = []
+    in_zone = False
+    z_start = 0
+    for t in range(max_sec + 1):
+        if active_secs[t]:
+            if not in_zone:
+                z_start = t
+                in_zone = True
+        else:
+            if in_zone:
+                zones.append((z_start, t - 1))
+                in_zone = False
+    if in_zone:
+        zones.append((z_start, max_sec))
+
+    # Merge close zones
+    merged: list[tuple[int, int]] = []
+    for s, e in zones:
+        if merged and s - merged[-1][1] <= merge_gap_s:
+            merged[-1] = (merged[-1][0], e)
+        else:
+            merged.append((s, e))
+
+    # Split zones longer than max_zone_s at the quietest second
+    def _split(s: int, e: int) -> list[tuple[int, int]]:
+        if e - s <= max_zone_s:
+            return [(s, e)]
+        # Find the second with fewest detections (avoid edges)
+        margin = 3
+        candidates = range(s + margin, e - margin + 1)
+        if not candidates:
+            return [(s, e)]
+        best_t = min(candidates, key=lambda t: det_per_sec.get(t, 0))
+        left = _split(s, best_t - 1)
+        right = _split(best_t + 1, e)
+        return left + right
+
+    split: list[tuple[int, int]] = []
+    for s, e in merged:
+        split.extend(_split(s, e))
+
+    return [(int(s * fps), int(e * fps)) for s, e in split]
 
 
 def count_hits_in_run(ball_csv: Path, run: tuple[int, int],
@@ -206,7 +292,24 @@ def segment(ball_csv: Path, players_csv: Path | None, meta: dict,
         raise ValueError(f"meta dict missing required 'fps' key (got keys: {sorted(meta)})")
     fps = float(meta["fps"])
 
-    runs = find_continuous_runs(ball_csv, min_run_frames=params.min_run_frames)
+    # Pick run-finder based on detection rate
+    ball_rows = _read_ball_csv(ball_csv)
+    n_detected = sum(1 for _, x, _ in ball_rows if x is not None)
+    det_rate = n_detected / len(ball_rows) if ball_rows else 0.0
+    use_density = det_rate < params.density_fallback_rate
+
+    if use_density:
+        runs = find_density_runs(
+            ball_csv, fps,
+            window_s=params.density_window_s,
+            threshold=params.density_threshold,
+            merge_gap_s=params.density_merge_gap_s,
+        )
+        print(f"  detection rate {det_rate:.1%} < {params.density_fallback_rate:.0%}, "
+              f"using density mode -> {len(runs)} zones")
+    else:
+        runs = find_continuous_runs(ball_csv, min_run_frames=params.min_run_frames)
+
     rallies = []
     kept_idx = 0
     for f_start, f_end in runs:

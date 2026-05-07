@@ -49,10 +49,10 @@ def filter_static_detections(rows: list[tuple], window: int = 30,
     move by less than `max_movement` px is YOLO latching onto a stationary
     object (court line, net post, logo). Drop all such detections.
 
-    The window must be nearly frame-consecutive (frame span ≤ window + window//3)
-    to distinguish high-density false-positive latching (~100% detection rate in
-    those frames) from real rally detections (~50-70% density), which span more
-    actual frames for the same number of detected rows.
+    Only windows where detections are nearly frame-consecutive (span ≤ window + 1,
+    i.e. at least ~97% detection rate) are tested. This separates high-density
+    false-positive latching from real rallies which have ~50-70% detection density
+    and therefore span more actual frames per `window` detected rows.
 
     rows: list of (frame, x, y, conf). Returns filtered list (same shape).
     """
@@ -61,11 +61,11 @@ def filter_static_detections(rows: list[tuple], window: int = 30,
     # Mark each row as "static" if it's part of a window where x and y move <= max_movement
     is_static = [False] * len(rows)
     # Sliding window check: for each i, look ahead `window` rows
-    max_frame_span = window + window // 3  # ~100% density: 30 rows in ≤40 frames
     for i in range(len(rows) - window + 1):
         chunk = rows[i:i + window]
-        # Require nearly-consecutive frames: only high-density runs (false positives) pass
-        if chunk[-1][0] - chunk[0][0] > max_frame_span:
+        # Require near-100% detection density: only static-object runs have
+        # nearly every frame detected. Real rally segments have gaps.
+        if chunk[-1][0] - chunk[0][0] > window + 1:
             continue
         xs = [r[1] for r in chunk]
         ys = [r[2] for r in chunk]
@@ -124,7 +124,6 @@ def detect(video: Path, out_csv: Path, conf_thresh: float = 0.15,
     elapsed = time.time() - t0
 
     filtered = filter_jumps(raw_rows, max_jump=200.0)
-    filtered = filter_static_detections(filtered, window=30, max_movement=5.0)
 
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with out_csv.open("w", newline="") as f:
