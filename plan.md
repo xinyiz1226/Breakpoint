@@ -6,7 +6,7 @@
 
 ---
 
-## Phase 1 — Audio-Based Point Segmentation & Ranking (MVP)
+## Phase 1 — Audio-Based Point Segmentation & Ranking (MVP) ✅ 已完成
 
 目标：仅通过音频信号，将比赛切分为逐分片段并排序出精彩回合。
 
