@@ -1,0 +1,6 @@
+output/
+output2/
+web/static/temp/
+__pycache__/
+*.pyc
+*.wav

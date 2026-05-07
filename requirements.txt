@@ -1,0 +1,4 @@
+librosa>=0.10
+numpy
+scipy
+ffmpeg-python

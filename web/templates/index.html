@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Breakpoint — Tennis Highlight Editor</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0f0a;
+  --surface: #141a14;
+  --surface2: #1c241c;
+  --border: #2a352a;
+  --border-hover: #3a4a3a;
+  --green: #4CAF50;
+  --green-dim: #2E7D32;
+  --green-glow: rgba(76,175,80,0.15);
+  --green-bright: #66BB6A;
+  --text: #e0e8e0;
+  --text-dim: #8a9a8a;
+  --text-muted: #5a6a5a;
+  --accent: #A5D6A7;
+  --danger: #ef5350;
+  --danger-dim: #c62828;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Outfit', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ─── Header ─── */
+.header {
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+}
+.header .logo {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--green);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.header .logo span { color: var(--text-dim); font-weight: 400; }
+
+/* ─── Input bar ─── */
+.input-bar {
+  height: 48px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 10px;
+}
+.input-bar input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 14px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.input-bar input:focus { border-color: var(--green-dim); }
+.input-bar input::placeholder { color: var(--text-muted); }
+
+/* ─── Buttons ─── */
+.btn {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 13px;
+  padding: 7px 18px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-primary {
+  background: var(--green-dim);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--green); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { border-color: var(--border-hover); color: var(--text); }
+.btn-danger {
+  background: var(--danger-dim);
+  color: #fff;
+}
+.btn-danger:hover { background: var(--danger); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-xs { padding: 2px 8px; font-size: 11px; border-radius: 4px; }
+
+/* ─── Main layout ─── */
+.main {
+  display: grid;
+  grid-template-columns: 1fr 380px 340px;
+  height: calc(100vh - 100px);
+  overflow: hidden;
+}
+
+/* ─── Video panel ─── */
+.video-panel {
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-right: 1px solid var(--border);
+  min-height: 0;
+  overflow: hidden;
+}
+.video-panel video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  outline: none;
+}
+.video-panel .time-display {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--green-bright);
+  background: rgba(0,0,0,0.7);
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+.video-panel .empty-state {
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* ─── Segment list ─── */
+.segment-panel {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.panel-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.panel-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.segment-list {
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.seg-item {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.seg-item:hover { background: var(--surface2); }
+.seg-item.active { background: var(--green-glow); border-left: 3px solid var(--green); }
+.seg-item.in-shortlist { opacity: 0.45; }
+
+.seg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.seg-time {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent);
+}
+.seg-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 12px;
+}
+.seg-meta .hits { color: var(--green-bright); }
+.seg-score {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Time adjust controls */
+.seg-adjust {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+.seg-item.active .seg-adjust { display: flex; }
+.seg-adjust .slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.seg-adjust label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  width: 28px;
+  flex-shrink: 0;
+}
+.seg-adjust .slider-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  width: 62px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.seg-adjust input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.seg-adjust input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--green);
+  cursor: grab;
+  border: 2px solid var(--bg);
+}
+.seg-adjust input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--green);
+  cursor: grab;
+  border: 2px solid var(--bg);
+}
+
+/* ─── Shortlist panel ─── */
+.shortlist-panel {
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.shortlist-list {
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.shortlist-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 40px 20px;
+  line-height: 1.6;
+}
+
+.sl-item {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: grab;
+  transition: background 0.12s;
+}
+.sl-item:hover { background: var(--surface2); }
+.sl-item.dragging { opacity: 0.4; }
+.sl-item .drag-handle {
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: grab;
+  user-select: none;
+}
+.sl-item .sl-info {
+  flex: 1;
+}
+.sl-item .sl-time {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+}
+.sl-item .sl-dur {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.shortlist-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.shortlist-footer .stats {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* ─── Loading overlay ─── */
+.loading {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  flex-direction: column;
+  gap: 16px;
+}
+.loading.show { display: flex; }
+.loading .spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading .loading-text {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+/* ─── Toast ─── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 13px;
+  color: var(--text);
+  z-index: 200;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">BREAKPOINT <span>highlight editor</span></div>
+</div>
+
+<div class="input-bar">
+  <button class="btn btn-ghost" onclick="pickFile()">📂 选择文件</button>
+  <input type="text" id="videoPath" placeholder="视频文件路径" />
+  <button class="btn btn-primary" id="analyzeBtn" onclick="analyze()">分析视频</button>
+</div>
+
+<div class="main">
+  <!-- Left: Video player -->
+  <div class="video-panel" id="videoPanel">
+    <div class="empty-state" id="emptyState">输入视频路径并点击「分析视频」</div>
+    <video id="player" controls style="display:none"></video>
+    <div class="time-display" id="timeDisplay" style="display:none">00:00.00</div>
+  </div>
+
+  <!-- Center: Detected segments -->
+  <div class="segment-panel">
+    <div class="panel-header">
+      <span class="panel-title">检测到的片段</span>
+      <span class="panel-count" id="segCount">0 段</span>
+    </div>
+    <div class="segment-list" id="segList"></div>
+  </div>
+
+  <!-- Right: Shortlist -->
+  <div class="shortlist-panel">
+    <div class="panel-header">
+      <span class="panel-title">候选列表</span>
+      <span class="panel-count" id="slCount">0 段</span>
+    </div>
+    <div class="shortlist-list" id="slList">
+      <div class="shortlist-empty" id="slEmpty">从左侧列表中添加精彩片段</div>
+    </div>
+    <div class="shortlist-footer">
+      <div class="stats" id="slStats">总时长: 0s</div>
+      <button class="btn btn-primary" style="width:100%" onclick="exportVideo()" id="exportBtn" disabled>导出合并视频</button>
+    </div>
+  </div>
+</div>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">正在分析视频...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let state = {
+  videoPath: '',
+  segments: [],
+  shortlist: [],
+  activeSegId: null,
+  duration: 0,
+};
+
+const player = document.getElementById('player');
+
+// ─── Video error/load diagnostics ───
+player.addEventListener('error', () => {
+  const e = player.error;
+  console.error('Video error:', e ? `code=${e.code} message=${e.message}` : 'unknown');
+  toast('视频加载失败，请检查控制台');
+});
+player.addEventListener('loadeddata', () => {
+  console.log('Video loadeddata, duration:', player.duration, 'readyState:', player.readyState);
+});
+
+// ─── Format time ───
+function fmt(s) {
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(2);
+  return `${String(m).padStart(2,'0')}:${sec.padStart(5,'0')}`;
+}
+
+// ─── Toast ───
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ─── Loading ───
+function showLoading(msg) {
+  document.getElementById('loadingText').textContent = msg;
+  document.getElementById('loading').classList.add('show');
+}
+function hideLoading() {
+  document.getElementById('loading').classList.remove('show');
+}
+
+// ─── Pick file via system dialog ───
+async function pickFile() {
+  try {
+    const res = await fetch('/pick-file', {method: 'POST'});
+    const data = await res.json();
+    if (data.path) {
+      document.getElementById('videoPath').value = data.path;
+    }
+  } catch (e) {
+    toast('文件选择失败: ' + e.message);
+  }
+}
+
+// ─── Analyze ───
+async function analyze() {
+  const path = document.getElementById('videoPath').value.trim();
+  if (!path) return toast('请输入视频路径');
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+  showLoading('正在分析视频，请稍候...');
+
+  try {
+    const res = await fetch('/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({video_path: path}),
+    });
+    const data = await res.json();
+    if (data.error) { toast(data.error); return; }
+
+    state.videoPath = data.video_path;
+    state.segments = data.segments;
+    state.duration = data.duration;
+    state.shortlist = [];
+    state.activeSegId = null;
+
+    // Setup video player
+    player.src = `/video?path=${encodeURIComponent(path)}`;
+    player.style.display = 'block';
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('timeDisplay').style.display = 'block';
+
+    renderSegments();
+    renderShortlist();
+    toast(`检测到 ${data.segments.length} 个片段`);
+  } catch (e) {
+    toast('分析失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    hideLoading();
+  }
+}
+
+// ─── Render segments ───
+function renderSegments() {
+  const list = document.getElementById('segList');
+  document.getElementById('segCount').textContent = `${state.segments.length} 段`;
+
+  list.innerHTML = state.segments.map(seg => {
+    const inSl = state.shortlist.some(s => s.id === seg.id);
+    return `
+    <div class="seg-item ${state.activeSegId === seg.id ? 'active' : ''} ${inSl ? 'in-shortlist' : ''}"
+         data-id="${seg.id}" onclick="selectSeg(${seg.id})">
+      <div class="seg-row">
+        <span class="seg-time">${fmt(seg.start)} → ${fmt(seg.end)}</span>
+        <div>
+          ${inSl
+            ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation(); removeFromShortlist(${seg.id})">已添加</button>`
+            : `<button class="btn btn-xs btn-primary" onclick="event.stopPropagation(); addToShortlist(${seg.id})">+ 候选</button>`
+          }
+        </div>
+      </div>
+      <div class="seg-meta">
+        <span class="hits">${seg.hit_count} 拍</span>
+        <span>${seg.duration}s</span>
+        <span class="seg-score">score ${seg.score.toFixed(2)}</span>
+      </div>
+      <div class="seg-adjust">
+        <div class="slider-row">
+          <label>起始</label>
+          <input type="range" min="${Math.max(0, seg.start - 10)}" max="${seg.end - 0.5}" step="0.1" value="${seg.start}"
+                 oninput="adjustSlider(${seg.id}, 'start', this.value, this)" onclick="event.stopPropagation()">
+          <span class="slider-time">${fmt(seg.start)}</span>
+        </div>
+        <div class="slider-row">
+          <label>结束</label>
+          <input type="range" min="${seg.start + 0.5}" max="${Math.min(state.duration, seg.end + 10)}" step="0.1" value="${seg.end}"
+                 oninput="adjustSlider(${seg.id}, 'end', this.value, this)" onclick="event.stopPropagation()">
+          <span class="slider-time">${fmt(seg.end)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Select segment → seek video ───
+function selectSeg(id) {
+  state.activeSegId = (state.activeSegId === id) ? null : id;
+  const seg = state.segments.find(s => s.id === id);
+  if (seg && state.activeSegId !== null) {
+    playSegment(seg.start, seg.end);
+  }
+  renderSegments();
+}
+
+// ─── Adjust time via slider ───
+function adjustSlider(id, field, value, inputEl) {
+  const seg = state.segments.find(s => s.id === id);
+  if (!seg) return;
+  const v = parseFloat(value);
+  if (isNaN(v) || v < 0) return;
+  seg[field] = v;
+  seg.duration = Math.round((seg.end - seg.start) * 100) / 100;
+  // Update time label next to slider
+  const timeLabel = inputEl.parentElement.querySelector('.slider-time');
+  if (timeLabel) timeLabel.textContent = fmt(v);
+  // Seek video to show the adjusted position
+  player.currentTime = v;
+  // Update shortlist if present
+  const slItem = state.shortlist.find(s => s.id === id);
+  if (slItem) {
+    slItem[field] = v;
+    renderShortlist();
+  }
+}
+
+// ─── Shortlist management ───
+function addToShortlist(id) {
+  if (state.shortlist.some(s => s.id === id)) return;
+  const seg = state.segments.find(s => s.id === id);
+  if (!seg) return;
+  state.shortlist.push({...seg});
+  renderSegments();
+  renderShortlist();
+}
+
+function removeFromShortlist(id) {
+  state.shortlist = state.shortlist.filter(s => s.id !== id);
+  renderSegments();
+  renderShortlist();
+}
+
+function renderShortlist() {
+  const list = document.getElementById('slList');
+  const empty = document.getElementById('slEmpty');
+  document.getElementById('slCount').textContent = `${state.shortlist.length} 段`;
+  document.getElementById('exportBtn').disabled = state.shortlist.length === 0;
+
+  const totalDur = state.shortlist.reduce((sum, s) => sum + (s.end - s.start), 0);
+  document.getElementById('slStats').textContent = `总时长: ${totalDur.toFixed(1)}s`;
+
+  if (state.shortlist.length === 0) {
+    empty.style.display = 'block';
+    list.innerHTML = '';
+    list.appendChild(empty);
+    return;
+  }
+  empty.style.display = 'none';
+
+  list.innerHTML = state.shortlist.map((s, i) => `
+    <div class="sl-item" data-idx="${i}"
+         ondragover="dragOver(event)" ondrop="drop(event, ${i})"
+         ondblclick="playSegment(${s.start}, ${s.end})">
+      <span class="drag-handle" draggable="true"
+            ondragstart="dragStart(event, ${i})">⠿</span>
+      <div class="sl-info">
+        <div class="sl-time">${fmt(s.start)} → ${fmt(s.end)}</div>
+        <div class="sl-dur">${(s.end - s.start).toFixed(1)}s · ${s.hit_count} 拍</div>
+      </div>
+      <button class="btn btn-xs btn-danger" onclick="event.stopPropagation(); removeFromShortlist(${s.id})">✕</button>
+    </div>
+  `).join('');
+}
+
+// ─── Play a segment with auto-stop at end ───
+let playEndTime = null;
+function playSegment(start, end) {
+  player.style.display = 'block';
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('timeDisplay').style.display = 'block';
+  playEndTime = end;
+  player.currentTime = start;
+  player.play();
+}
+player.addEventListener('timeupdate', () => {
+  document.getElementById('timeDisplay').textContent = fmt(player.currentTime);
+  if (playEndTime !== null && player.currentTime >= playEndTime) {
+    player.pause();
+    playEndTime = null;
+  }
+});
+let dragIdx = null;
+function dragStart(e, idx) { dragIdx = idx; e.dataTransfer.effectAllowed = 'move'; }
+function dragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+function drop(e, toIdx) {
+  e.preventDefault();
+  if (dragIdx === null || dragIdx === toIdx) return;
+  const item = state.shortlist.splice(dragIdx, 1)[0];
+  state.shortlist.splice(toIdx, 0, item);
+  dragIdx = null;
+  renderShortlist();
+}
+
+// ─── Export ───
+async function exportVideo() {
+  if (state.shortlist.length === 0) return;
+
+  showLoading('正在导出合并视频...');
+  try {
+    const res = await fetch('/export', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        video_path: state.videoPath,
+        clips: state.shortlist.map(s => ({start: s.start, end: s.end})),
+      }),
+    });
+    const data = await res.json();
+    if (data.error) { toast('导出失败: ' + data.error); return; }
+    toast('导出成功: ' + data.output_path);
+  } catch (e) {
+    toast('导出失败: ' + e.message);
+  } finally {
+    hideLoading();
+  }
+}
+
+// ─── Keyboard shortcuts ───
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === ' ') {
+    e.preventDefault();
+    player.paused ? player.play() : player.pause();
+  }
+});
+</script>
+</body>
+</html>
