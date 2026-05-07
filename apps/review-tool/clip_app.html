@@ -1,146 +1,934 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<title>Tennis edit (server)</title>
+<title>破发点 · Breakpoint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    --court: #0f3d2e;
+    --court-deep: #082218;
+    --court-line: #e8ddc4;
+    --cream: #f4ecd8;
+    --cream-2: #ebe1c7;
+    --ink: #0b1a14;
+    --ball: #d8ff36;
+    --ball-deep: #b6dc18;
+    --clay: #c25a3a;
+    --rule: rgba(15, 61, 46, 0.18);
+    --rule-strong: rgba(15, 61, 46, 0.45);
+
+    --display: "Bricolage Grotesque", "PingFang SC", "Microsoft YaHei", system-ui;
+    --serif: "Fraunces", "Songti SC", Georgia, serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
   * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
   body {
-    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-    margin: 0; padding: 0;
+    font-family: var(--serif);
+    color: var(--ink);
+    background: var(--cream);
+    font-size: 14px;
+    line-height: 1.45;
+    min-height: 100vh;
     display: grid;
-    grid-template-columns: minmax(420px, 1fr) minmax(440px, 600px);
-    grid-template-rows: auto 1fr;
-    height: 100vh;
+    grid-template-rows: auto auto 1fr;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(15,61,46,0.05) 0 1px, transparent 1px),
+      radial-gradient(circle at 78% 64%, rgba(15,61,46,0.05) 0 1px, transparent 1px);
+    background-size: 24px 24px, 36px 36px;
   }
-  header {
-    grid-column: 1 / -1;
+
+  /* ---------- top brand bar ---------- */
+  .brandbar {
+    background: var(--court);
+    color: var(--cream);
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    border-bottom: 3px solid var(--ball);
+    position: relative;
+    overflow: hidden;
+  }
+  .brandbar::after {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(90deg, transparent 0 80px, rgba(232,221,196,0.06) 80px 81px);
+    pointer-events: none;
+  }
+  .logo {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .logo .cn {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--ball);
+  }
+  .logo .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--ball);
+    display: inline-block;
+    box-shadow: 0 0 0 3px rgba(216,255,54,0.18);
+    transform: translateY(-2px);
+  }
+  .tagline {
+    font-family: var(--serif);
+    font-style: italic;
+    opacity: 0.72;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    border-left: 1px solid rgba(232,221,196,0.3);
+    padding-left: 18px;
+  }
+  .brandbar .scoreboard {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+  }
+  .scoreboard .pill {
+    padding: 5px 11px;
+    border: 1px solid rgba(232,221,196,0.35);
+    border-radius: 999px;
+  }
+  .scoreboard .pill.live {
+    background: var(--ball);
+    color: var(--court-deep);
+    border-color: var(--ball);
+    font-weight: 700;
+  }
+
+  /* ---------- workflow stepper ---------- */
+  .stepper {
+    background: var(--cream-2);
+    border-bottom: 1px solid var(--rule);
+    padding: 10px 28px;
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    position: relative;
+  }
+  .step {
+    flex: 1;
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 14px;
+    position: relative;
+  }
+  .step + .step::before {
+    content: "";
+    position: absolute; left: -1px; top: 18%; bottom: 18%;
+    width: 1px;
+    background: var(--rule-strong);
+  }
+  .step .num {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 32px;
+    line-height: 1;
+    color: var(--court);
+    width: 44px; height: 44px;
+    border: 2px solid var(--court);
+    border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--cream);
+    transition: all .25s ease;
+  }
+  .step.active .num {
+    background: var(--ball);
+    color: var(--court-deep);
+    border-color: var(--court);
+    box-shadow: 0 4px 0 0 var(--court);
+    transform: translateY(-2px);
+  }
+  .step.done .num {
+    background: var(--court);
+    color: var(--ball);
+  }
+  .step .lbl { display: flex; flex-direction: column; }
+  .step .lbl .kicker {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    opacity: 0.55;
+  }
+  .step .lbl .name {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+
+  /* ---------- main grid ---------- */
+  main {
+    display: grid;
+    grid-template-columns: minmax(440px, 1.3fr) minmax(460px, 1fr);
+    gap: 0;
+    min-height: 0;
+  }
+  .panel {
+    padding: 22px 26px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .panel.left { border-right: 1px dashed var(--rule-strong); }
+
+  .section-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1.5px solid var(--court);
+    padding-bottom: 6px;
+  }
+  .section-head h2 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .section-head .index {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: var(--court);
+    opacity: 0.65;
+  }
+  .section-head .right {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    opacity: 0.6;
+  }
+
+  /* ---------- file pickers ---------- */
+  .filerow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .filecard {
+    background: var(--cream);
+    border: 1.5px solid var(--court);
+    border-radius: 4px;
+    padding: 12px 14px;
+    position: relative;
+    cursor: pointer;
+    transition: all .2s ease;
+    display: flex; flex-direction: column; gap: 6px;
+    box-shadow: 4px 4px 0 0 var(--court);
+  }
+  .filecard:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 0 var(--ball-deep);
+  }
+  .filecard .kicker {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--court);
+    opacity: 0.7;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .filecard .kicker .num {
+    background: var(--court); color: var(--ball);
+    width: 18px; height: 18px;
+    display: grid; place-items: center;
+    border-radius: 50%; font-weight: 700;
+  }
+  .filecard .name {
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-all;
+    color: var(--ink);
+    min-height: 30px;
+    line-height: 1.35;
+  }
+  .filecard .name.empty {
+    font-family: var(--serif);
+    font-style: italic;
+    opacity: 0.5;
+  }
+  .filecard .cta {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--court);
+    border-top: 1px dashed var(--rule-strong);
+    padding-top: 6px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .filecard .cta::after { content: "→"; font-family: var(--display); font-weight: 800; }
+
+  /* ---------- video stage ---------- */
+  .stage {
+    background: var(--court-deep);
+    border: 1.5px solid var(--court);
+    border-radius: 6px;
+    padding: 8px;
+    position: relative;
+    box-shadow: 6px 6px 0 0 var(--court);
+  }
+  .stage::before {
+    content: "PLAYBACK";
+    position: absolute; top: -10px; left: 14px;
+    background: var(--ball);
+    color: var(--court-deep);
+    font-family: var(--mono);
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.22em;
+    padding: 2px 8px;
+    border-radius: 2px;
+    z-index: 2;
+  }
+  video {
+    width: 100%;
+    max-height: 52vh;
+    background: #000;
+    border-radius: 3px;
+    display: block;
+  }
+
+  .telemetry {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    font-family: var(--mono);
+  }
+  .stat {
+    background: var(--cream);
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    padding: 8px 10px;
+  }
+  .stat .label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    opacity: 0.6;
+  }
+  .stat .value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--court);
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+  .stat.ball .value { color: var(--clay); }
+  .stat.kept .value { color: var(--court); }
+  .stat.kept .value::before {
+    content: "✓"; color: var(--ball-deep); margin-right: 4px;
+  }
+
+  .legend {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    opacity: 0.65;
+    padding: 6px 0;
+    border-top: 1px dotted var(--rule-strong);
+    border-bottom: 1px dotted var(--rule-strong);
+  }
+  .legend kbd {
+    font-family: var(--mono);
+    background: var(--court);
+    color: var(--ball);
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 10px;
+    margin: 0 2px;
+  }
+
+  /* ---------- actions ---------- */
+  .actions {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  }
+  button.btn {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+    background: var(--cream);
+    color: var(--court);
+    border: 1.5px solid var(--court);
+    border-radius: 3px;
+    padding: 8px 14px;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 0 var(--court);
+    transition: all .15s ease;
+  }
+  button.btn:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 0 var(--court);
+  }
+  button.btn:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 0 var(--court);
+  }
+  button.btn:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
+  button.btn.primary {
+    background: var(--ball);
+    border-color: var(--court);
+    color: var(--court-deep);
+  }
+  button.btn.primary:hover:not(:disabled) {
+    box-shadow: 4px 4px 0 0 var(--court-deep);
+  }
+  button.btn.danger {
+    background: var(--clay); color: var(--cream);
+    border-color: var(--court-deep);
+  }
+
+  details.params {
+    background: rgba(255,255,255,0.4);
+    border: 1px dashed var(--rule-strong);
+    border-radius: 3px;
     padding: 8px 12px;
-    border-bottom: 1px solid #8884;
-    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
   }
-  header > * { flex: 0 0 auto; }
-  header button { padding: 5px 10px; }
-  #status {
-    flex: 1 1 auto; min-width: 240px; text-align: right;
-    opacity: .85; font-size: 12px; font-variant-numeric: tabular-nums;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  details.params summary {
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--court);
   }
-  .left { padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-  video { width: 100%; max-height: 56vh; background: #000; border-radius: 6px; }
-  .row { font-variant-numeric: tabular-nums; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-  .row b { font-size: 15px; }
-  .right { border-left: 1px solid #8884; overflow: auto; padding: 6px 0; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { padding: 4px 6px; border-bottom: 1px solid #8882; text-align: left; vertical-align: middle; }
-  th { position: sticky; top: 0; background: Canvas; z-index: 1; font-size: 12px; }
-  tbody tr.playing { background: #4a90e233; }
-  tbody tr.kept { background: #2ecc7122; }
-  td.id { font-weight: 600; white-space: nowrap; }
-  td.t input {
-    width: 96px; font: inherit; font-variant-numeric: tabular-nums;
-    padding: 2px 4px; border: 1px solid #8884; border-radius: 4px; background: transparent;
-    color: inherit;
+  details.params .body {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px 14px;
+    padding-top: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
   }
-  td.t input.bad { border-color: #e74c3c; }
-  td.meta { font-size: 11px; opacity: .75; }
-  td.act { white-space: nowrap; }
-  td.act button { padding: 2px 6px; font-size: 12px; }
-  .row-actions { display: flex; gap: 3px; flex-wrap: wrap; }
-  .hint { padding: 14px; opacity: .7; font-size: 12px; }
-  input[type="checkbox"] { width: 17px; height: 17px; }
-  .legend { font-size: 11px; opacity: .8; }
-  .progress { width: 100%; height: 6px; background: #8884; border-radius: 3px; overflow: hidden; display: none; }
-  .progress > div { height: 100%; background: #4a90e2; width: 0%; transition: width .15s; }
+  details.params label {
+    display: flex; flex-direction: column; gap: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.75;
+  }
+  details.params input[type="number"] {
+    width: 100%;
+    font: inherit;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 6px;
+    background: var(--cream);
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    color: var(--ink);
+  }
+
+  /* ---------- presets ---------- */
+  .presets {
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.45);
+    border: 1px dashed var(--rule-strong);
+    border-radius: 3px;
+  }
+  .presets-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    opacity: 0.6;
+    margin-right: 4px;
+  }
+  .preset {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 12px;
+    background: transparent;
+    color: var(--court);
+    border: 1.2px solid var(--court);
+    border-radius: 2px;
+    padding: 5px 11px;
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .preset:hover {
+    background: var(--cream-2);
+  }
+  .preset.active {
+    background: var(--ball);
+    color: var(--court-deep);
+    border-color: var(--court);
+    box-shadow: 2px 2px 0 0 var(--court);
+    transform: translate(-1px, -1px);
+  }
+
+  /* ---------- progress ---------- */
+  .progress {
+    width: 100%; height: 8px;
+    background: var(--cream-2);
+    border: 1px solid var(--court);
+    border-radius: 0;
+    overflow: hidden;
+    display: none;
+    position: relative;
+  }
   .progress.show { display: block; }
-  details.params summary { cursor: pointer; opacity: .8; font-size: 12px; }
-  details.params .body { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 0; font-size: 12px; }
-  details.params input[type="number"] { width: 70px; }
-  .seg { border-left: 1px solid #8884; height: 22px; margin: 0 4px; }
+  .progress > div {
+    height: 100%;
+    background: var(--ball);
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--ball) 0 8px,
+      var(--ball-deep) 8px 16px
+    );
+    width: 0%;
+    transition: width .15s;
+  }
+  #status {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    color: var(--court);
+    background: var(--cream);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--ball-deep);
+    padding: 6px 10px;
+    border-radius: 0 3px 3px 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ---------- right panel: clip cards ---------- */
+  .right {
+    background:
+      linear-gradient(var(--cream), var(--cream)),
+      repeating-linear-gradient(0deg, transparent 0 28px, var(--rule) 28px 29px);
+    background-blend-mode: multiply;
+  }
+  .cliplist {
+    display: flex; flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    padding-right: 4px;
+    flex: 1;
+  }
+  .cliplist::-webkit-scrollbar { width: 10px; }
+  .cliplist::-webkit-scrollbar-track { background: transparent; }
+  .cliplist::-webkit-scrollbar-thumb {
+    background: var(--court); border-radius: 0;
+    border: 2px solid var(--cream);
+  }
+
+  .clip {
+    border: 1.5px solid var(--court);
+    background: var(--cream);
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    gap: 10px;
+    position: relative;
+    transition: all .15s ease;
+    box-shadow: 3px 3px 0 0 transparent;
+  }
+  .clip:hover {
+    box-shadow: 3px 3px 0 0 var(--court);
+    transform: translate(-1px, -1px);
+  }
+  .clip.playing {
+    background: linear-gradient(180deg, var(--cream), #fdf6df);
+    border-color: var(--court-deep);
+    box-shadow: 4px 4px 0 0 var(--ball-deep);
+    transform: translate(-1px, -1px);
+  }
+  .clip.kept {
+    background: linear-gradient(180deg, var(--cream), #f0fbd0);
+  }
+  .clip.kept::after {
+    content: "MATCH POINT";
+    position: absolute;
+    top: -8px; right: 10px;
+    background: var(--ball);
+    color: var(--court-deep);
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    font-weight: 700;
+    padding: 2px 6px;
+    border: 1px solid var(--court);
+  }
+
+  .clip .keep-col {
+    display: grid; place-items: center;
+    border-right: 1px dashed var(--rule-strong);
+  }
+  .clip .keep-col input[type="checkbox"] {
+    appearance: none;
+    width: 22px; height: 22px;
+    border: 1.5px solid var(--court);
+    background: var(--cream);
+    border-radius: 50%;
+    cursor: pointer;
+    position: relative;
+    margin: 0;
+  }
+  .clip .keep-col input[type="checkbox"]:checked {
+    background: var(--ball);
+    border-color: var(--court);
+  }
+  .clip .keep-col input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 5px; top: 8px;
+    width: 5px; height: 9px;
+    border: solid var(--court-deep);
+    border-width: 0 2.5px 2.5px 0;
+    transform: rotate(45deg);
+  }
+
+  .clip .body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .clip .clipid {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    color: var(--court);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .clip .clipid::before {
+    content: "";
+    width: 6px; height: 6px;
+    background: var(--clay); border-radius: 50%;
+    display: inline-block;
+  }
+  .clip.kept .clipid::before { background: var(--ball-deep); }
+  .clip.playing .clipid::before { background: var(--court); animation: pulse 1.2s infinite; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.6); opacity: 0.5; }
+  }
+
+  .timecodes {
+    display: flex; gap: 6px; align-items: center;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .timecodes input {
+    width: 100px;
+    font: inherit;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    padding: 2px 6px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    background: var(--cream-2);
+    color: var(--ink);
+  }
+  .timecodes input.bad { border-color: var(--clay); background: #fbe4d9; }
+  .timecodes .arrow { opacity: 0.5; }
+
+  .clip .meta {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+  }
+
+  .clip .actions-col {
+    display: flex; flex-direction: column; gap: 4px;
+    align-items: stretch; justify-content: center;
+  }
+  .clip .row-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3px;
+  }
+  .clip .row-actions button {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    padding: 3px 4px;
+    background: transparent;
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    color: var(--ink);
+    cursor: pointer;
+    line-height: 1.1;
+    transition: all .1s ease;
+  }
+  .clip .row-actions button:hover {
+    background: var(--court); color: var(--ball);
+    border-color: var(--court);
+  }
+
+  .empty {
+    padding: 36px 20px;
+    text-align: center;
+    border: 2px dashed var(--rule-strong);
+    border-radius: 4px;
+    margin-top: 12px;
+  }
+  .empty .icon {
+    font-size: 48px;
+    line-height: 1;
+    margin-bottom: 12px;
+    filter: grayscale(0.2);
+  }
+  .empty .ttl {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--court);
+    margin-bottom: 6px;
+  }
+  .empty .sub {
+    font-family: var(--serif);
+    font-style: italic;
+    opacity: 0.65;
+    max-width: 32em;
+    margin: 0 auto;
+  }
+  .empty .sub b { font-style: normal; color: var(--court); }
+
+  /* ---------- modal picker ---------- */
   .picker {
-    position: fixed; inset: 0; background: rgba(0,0,0,.45);
-    display: none; align-items: center; justify-content: center; z-index: 10;
+    position: fixed; inset: 0;
+    background: rgba(8, 34, 24, 0.55);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 50;
   }
-  .picker.show { display: flex; }
-  .picker .panel {
-    background: Canvas; color: CanvasText; border-radius: 8px; min-width: 520px;
-    max-width: 80vw; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;
+  .picker.show { display: flex; animation: fadein .15s ease; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  .picker .panel-modal {
+    background: var(--cream);
+    color: var(--ink);
+    border: 2px solid var(--court);
+    box-shadow: 12px 12px 0 0 var(--court-deep);
+    min-width: 580px;
+    max-width: 80vw; max-height: 80vh;
+    display: flex; flex-direction: column;
+    overflow: hidden;
   }
-  .picker header { background: transparent; border-bottom: 1px solid #8884; padding: 8px 12px; }
-  .picker .body { overflow: auto; padding: 6px 8px; min-height: 200px; }
+  .picker .panel-modal > .head {
+    background: var(--court); color: var(--cream);
+    padding: 12px 16px;
+    border-bottom: 3px solid var(--ball);
+  }
+  .picker .panel-modal > .head .ttl {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+  }
+  .picker .crumbs {
+    font-family: var(--mono);
+    font-size: 11px;
+    opacity: 0.7;
+    word-break: break-all;
+  }
+  .picker .body-modal {
+    overflow: auto; padding: 6px 0;
+    min-height: 240px;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 33px, rgba(15,61,46,0.04) 33px 34px);
+  }
   .picker .row-item {
-    display: flex; gap: 8px; align-items: center; padding: 4px 6px;
-    cursor: pointer; border-radius: 4px;
+    display: flex; gap: 10px; align-items: center;
+    padding: 6px 16px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    border-left: 3px solid transparent;
   }
-  .picker .row-item:hover { background: #8882; }
-  .picker .row-item .meta { margin-left: auto; opacity: .65; font-size: 11px; }
-  .picker .crumbs { font-size: 12px; opacity: .8; word-break: break-all; }
-  .picker footer { border-top: 1px solid #8884; padding: 6px 12px; display: flex; gap: 8px; }
-  .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; background: #8884; }
-  .pathline { font-family: ui-monospace, Menlo, monospace; font-size: 12px; opacity: .85; word-break: break-all; }
+  .picker .row-item:hover {
+    background: var(--cream-2);
+    border-left-color: var(--ball-deep);
+  }
+  .picker .row-item .meta {
+    margin-left: auto;
+    opacity: 0.55;
+    font-size: 10.5px;
+  }
+  .picker .icon {
+    width: 24px; text-align: center;
+    font-size: 14px;
+  }
+  .picker .foot-modal {
+    border-top: 1px solid var(--rule-strong);
+    padding: 10px 16px;
+    display: flex; gap: 10px;
+    background: var(--cream-2);
+  }
 </style>
 </head>
 <body>
-<header>
-  <button id="pickVideo">Pick video…</button>
-  <span id="videoLabel" class="pathline">No video</span>
-  <span class="seg"></span>
-  <button id="pickAudio">Pick audio (opt)…</button>
-  <span id="audioLabel" class="pathline">—</span>
-  <span class="seg"></span>
-  <button id="analyzeBtn" disabled>Analyze</button>
-  <details class="params"><summary>params</summary>
-    <div class="body">
-      <label>pre-pad <input id="prePad" type="number" value="2.5" step="0.5" min="0"/>s</label>
-      <label>post-pad <input id="postPad" type="number" value="4.0" step="0.5" min="0"/>s</label>
-      <label>HP cutoff <input id="hpHz" type="number" value="2500" step="100" min="50"/>Hz</label>
-      <label>min hits <input id="minHits" type="number" value="3" step="1" min="2"/></label>
-      <label>min int <input id="minInt" type="number" value="0.45" step="0.05" min="0.1"/>s</label>
-      <label>max int <input id="maxInt" type="number" value="2.5" step="0.1" min="0.5"/>s</label>
-      <label>thr ratio <input id="thrRatio" type="number" value="4" step="0.5" min="1"/></label>
-      <label>min sep <input id="minSep" type="number" value="120" step="20" min="40"/>ms</label>
-      <label>max cand <input id="maxCand" type="number" value="200" step="10" min="10"/></label>
-    </div>
-  </details>
-  <span class="seg"></span>
-  <button id="renderBtn" disabled>Render</button>
-  <button id="cancelBtn" hidden>Cancel</button>
-  <span id="status">Ready.</span>
-</header>
 
-<section class="left">
-  <video id="player" controls preload="metadata"></video>
-  <div class="row">
-    <span>Now: <b id="curTime">00:00:00.000</b></span>
-    <span>Playing: <b id="playingId">—</b></span>
-    <span class="legend">▶ preview · ⤓ seek · ✂◀/✂▶ set start/end to playhead · -1s/+1s nudge</span>
-    <span style="margin-left:auto" class="legend">Kept <b id="keepCount">0</b> / <span id="totalCount">0</span></span>
+<div class="brandbar">
+  <div class="logo">
+    <span class="dot"></span>
+    <span>Breakpoint</span>
+    <span class="cn">破发点</span>
   </div>
-  <div id="progress" class="progress"><div></div></div>
-</section>
+  <div class="tagline">为业余网球爱好者打造的高光剪辑工作台</div>
+  <div class="scoreboard">
+    <span class="pill live">LIVE</span>
+    <span class="pill" id="status-pill">Server 127.0.0.1</span>
+  </div>
+</div>
 
-<aside class="right">
-  <div id="empty" class="hint">No analysis yet. Pick a video, optionally an audio file, then click <b>Analyze</b>.</div>
-  <table id="tbl" hidden>
-    <thead><tr><th>Keep</th><th>ID</th><th>Start</th><th>End</th><th>Meta</th><th></th></tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
-</aside>
+<div class="stepper">
+  <div class="step active" id="step-1">
+    <div class="num">1</div>
+    <div class="lbl">
+      <span class="kicker">Step One · 上传</span>
+      <span class="name">Footage In</span>
+    </div>
+  </div>
+  <div class="step" id="step-2">
+    <div class="num">2</div>
+    <div class="lbl">
+      <span class="kicker">Step Two · 挑选</span>
+      <span class="name">Curate Rallies</span>
+    </div>
+  </div>
+  <div class="step" id="step-3">
+    <div class="num">3</div>
+    <div class="lbl">
+      <span class="kicker">Step Three · 合成</span>
+      <span class="name">Render Highlight</span>
+    </div>
+  </div>
+</div>
+
+<main>
+
+  <section class="panel left">
+    <div class="section-head">
+      <span class="index">No. 01</span>
+      <h2>Match Footage</h2>
+      <span class="right" id="resoBadge">— · —</span>
+    </div>
+
+    <div class="filerow">
+      <div class="filecard" id="pickVideo">
+        <span class="kicker"><span class="num">V</span> Video Source</span>
+        <div class="name empty" id="videoLabel">尚未选择视频文件</div>
+        <div class="cta">挑选视频</div>
+      </div>
+      <div class="filecard" id="pickAudio">
+        <span class="kicker"><span class="num">A</span> Audio (optional)</span>
+        <div class="name empty" id="audioLabel">用视频自带音轨</div>
+        <div class="cta">挑选音频</div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <video id="player" controls preload="metadata"></video>
+    </div>
+
+    <div class="telemetry">
+      <div class="stat">
+        <div class="label">Now Playing</div>
+        <div class="value" id="curTime">00:00:00.000</div>
+      </div>
+      <div class="stat ball">
+        <div class="label">Active Clip</div>
+        <div class="value" id="playingId">—</div>
+      </div>
+      <div class="stat kept">
+        <div class="label">Kept</div>
+        <div class="value"><span id="keepCount">0</span></div>
+      </div>
+      <div class="stat">
+        <div class="label">Candidates</div>
+        <div class="value" id="totalCount">0</div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <kbd>Space</kbd> 播放／暂停
+      <kbd>J</kbd>/<kbd>K</kbd> 上下条
+      <kbd>X</kbd> 标记保留
+      ✂◀／✂▶ 把头/尾设为播放头
+    </div>
+
+    <div class="presets">
+      <span class="presets-label">剪辑风格</span>
+      <button class="preset" data-preset="full">完整回合</button>
+      <button class="preset active" data-preset="tight">精剪集锦</button>
+      <button class="preset" data-preset="ultra">超短 highlight</button>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="analyzeBtn" disabled>① 分析候选</button>
+      <details class="params"><summary>analyze parameters</summary>
+        <div class="body">
+          <label>pre-pad (s) <input id="prePad" type="number" value="1.0" step="0.5" min="0"/></label>
+          <label>post-pad (s) <input id="postPad" type="number" value="1.0" step="0.5" min="0"/></label>
+          <label>HP cutoff (Hz) <input id="hpHz" type="number" value="2500" step="100" min="50"/></label>
+          <label>min hits <input id="minHits" type="number" value="4" step="1" min="2"/></label>
+          <label>min interval (s) <input id="minInt" type="number" value="0.45" step="0.05" min="0.1"/></label>
+          <label>max interval (s) <input id="maxInt" type="number" value="2.5" step="0.1" min="0.5"/></label>
+          <label>thr ratio <input id="thrRatio" type="number" value="4" step="0.5" min="1"/></label>
+          <label>min sep (ms) <input id="minSep" type="number" value="120" step="20" min="40"/></label>
+          <label>max candidates <input id="maxCand" type="number" value="100" step="10" min="10"/></label>
+        </div>
+      </details>
+      <button class="btn primary" id="renderBtn" disabled>② 合成高光</button>
+      <button class="btn danger" id="cancelBtn" hidden>取消任务</button>
+    </div>
+
+    <div id="progress" class="progress"><div></div></div>
+    <div id="status">Ready.</div>
+  </section>
+
+  <aside class="panel right">
+    <div class="section-head">
+      <span class="index">No. 02</span>
+      <h2>Rally Selector</h2>
+      <span class="right">scroll · click · keep</span>
+    </div>
+
+    <div id="empty" class="empty">
+      <div class="icon">🎾</div>
+      <div class="ttl">还没有候选片段</div>
+      <div class="sub">挑一段比赛录像，点 <b>① 分析候选</b>，让 Breakpoint 帮你从对拉里挑出回合。</div>
+    </div>
+
+    <div id="cliplist" class="cliplist" hidden></div>
+  </aside>
+
+</main>
 
 <!-- file picker modal -->
 <div class="picker" id="picker">
-  <div class="panel">
-    <header>
-      <div><b id="pickerTitle">Pick file</b></div>
+  <div class="panel-modal">
+    <div class="head">
+      <div class="ttl" id="pickerTitle">Pick file</div>
       <div class="crumbs" id="pickerCwd"></div>
-    </header>
-    <div class="body" id="pickerBody"></div>
-    <footer>
-      <button id="pickerUp">↑ Parent</button>
+    </div>
+    <div class="body-modal" id="pickerBody"></div>
+    <div class="foot-modal">
+      <button class="btn" id="pickerUp">↑ Parent</button>
       <span style="flex:1"></span>
-      <button id="pickerCancel">Cancel</button>
-    </footer>
+      <button class="btn" id="pickerCancel">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -149,8 +937,7 @@
 
 const $ = id => document.getElementById(id);
 const player = $("player");
-const rowsTbody = $("rows");
-const tbl = $("tbl");
+const cliplist = $("cliplist");
 const empty = $("empty");
 
 const state = {
@@ -188,6 +975,14 @@ function setProgress(frac) {
   el.classList.add("show");
   el.firstElementChild.style.width = `${Math.max(0, Math.min(1, frac))*100}%`;
 }
+function setStep(n) {
+  for (const i of [1,2,3]) {
+    const el = $("step-" + i);
+    el.classList.remove("active", "done");
+    if (i < n) el.classList.add("done");
+    if (i === n) el.classList.add("active");
+  }
+}
 function api(path, body) {
   return fetch(path, body ? {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)} : undefined)
     .then(async r => {
@@ -200,12 +995,12 @@ function api(path, body) {
 
 /* ---------------- file picker ---------------- */
 const picker = $("picker");
-let pickerKind = "video"; // 'video' | 'audio'
+let pickerKind = "video";
 let pickerCwd = null;
 
 async function openPicker(kind, startDir) {
   pickerKind = kind;
-  $("pickerTitle").textContent = kind === "video" ? "Pick video file" : "Pick audio file (optional)";
+  $("pickerTitle").textContent = kind === "video" ? "选择视频源" : "选择独立音频（可选）";
   picker.classList.add("show");
   await loadPicker(startDir || "");
 }
@@ -225,7 +1020,7 @@ async function loadPicker(dir) {
     const body = $("pickerBody"); body.innerHTML = "";
     const wantedExts = pickerKind === "video"
       ? new Set(["mp4","mov","m4v","mkv","webm","avi"])
-      : new Set(["m4a","aac","mp3","wav","flac","ogg","mp4","mov"]); // allow video as audio source too
+      : new Set(["m4a","aac","mp3","wav","flac","ogg","mp4","mov"]);
     for (const ent of data.entries) {
       const ext = (ent.name.split(".").pop() || "").toLowerCase();
       const showFile = !ent.is_dir && wantedExts.has(ext);
@@ -234,7 +1029,7 @@ async function loadPicker(dir) {
       div.className = "row-item";
       const icon = ent.is_dir ? "📁" : (ent.kind === "video" ? "🎞" : ent.kind === "audio" ? "🔊" : "📄");
       const sizeStr = ent.size != null ? prettySize(ent.size) : "";
-      div.innerHTML = `<span>${icon}</span><span>${escapeHTML(ent.name)}</span><span class="meta">${sizeStr}</span>`;
+      div.innerHTML = `<span class="icon">${icon}</span><span>${escapeHTML(ent.name)}</span><span class="meta">${sizeStr}</span>`;
       div.addEventListener("click", () => {
         if (ent.is_dir) loadPicker(ent.path);
         else choosePicked(ent.path);
@@ -252,20 +1047,33 @@ function prettySize(n) {
   return n.toFixed(n<10?1:0) + u[i] + "B";
 }
 function escapeHTML(s) { return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+function shortPath(p) {
+  if (!p) return "";
+  const parts = p.split(/[\\/]/);
+  if (parts.length <= 2) return p;
+  return ".../" + parts.slice(-2).join("/");
+}
 function choosePicked(path) {
   closePicker();
   if (pickerKind === "video") {
     state.videoPath = path;
-    $("videoLabel").textContent = path;
+    const lbl = $("videoLabel");
+    lbl.textContent = shortPath(path);
+    lbl.classList.remove("empty");
+    lbl.title = path;
     player.src = `/file?path=${encodeURIComponent(path)}`;
-    state.clips = []; state.activeIdx = -1; renderTable();
+    state.clips = []; state.activeIdx = -1; renderClips();
     $("analyzeBtn").disabled = false;
     $("renderBtn").disabled = true;
-    setStatus(`Video: ${path}`);
+    setStatus(`Loaded video · ${shortPath(path)}`);
+    setStep(2);
   } else {
     state.audioPath = path;
-    $("audioLabel").textContent = path;
-    setStatus(`Audio for analysis: ${path}`);
+    const lbl = $("audioLabel");
+    lbl.textContent = shortPath(path);
+    lbl.classList.remove("empty");
+    lbl.title = path;
+    setStatus(`Audio for analysis · ${shortPath(path)}`);
   }
 }
 $("pickVideo").addEventListener("click", () => {
@@ -278,7 +1086,7 @@ $("pickAudio").addEventListener("click", () => {
   openPicker("audio", start);
 });
 function parentDir(p) {
-  const i = p.lastIndexOf("/");
+  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
   return i > 0 ? p.slice(0, i) : "";
 }
 
@@ -287,6 +1095,9 @@ player.addEventListener("loadedmetadata", () => {
   state.duration = player.duration || 0;
   state.width = player.videoWidth;
   state.height = player.videoHeight;
+  $("resoBadge").textContent = state.width && state.height
+    ? `${state.width}×${state.height} · ${secToTs(state.duration).slice(0,8)}`
+    : "—";
 });
 player.addEventListener("timeupdate", () => {
   $("curTime").textContent = secToTs(player.currentTime);
@@ -326,9 +1137,10 @@ $("analyzeBtn").addEventListener("click", async () => {
       }));
       state.clips = clips;
       state.activeIdx = -1;
-      renderTable();
-      setStatus(`Analyze done: ${clips.length} candidates.`);
+      renderClips();
+      setStatus(`Analyze done · ${clips.length} candidates surfaced.`);
       $("renderBtn").disabled = clips.length === 0;
+      if (clips.length) setStep(2);
     } else if (job.state === "cancelled") {
       setStatus("Analyze cancelled.");
     } else {
@@ -354,6 +1166,7 @@ $("renderBtn").addEventListener("click", async () => {
   $("renderBtn").disabled = true; $("analyzeBtn").disabled = true;
   setProgress(0.02);
   setStatus(`Submitting render job (${kept.length} clips)…`);
+  setStep(3);
   try {
     const resp = await api("/api/render", {
       video_path: state.videoPath,
@@ -365,19 +1178,21 @@ $("renderBtn").addEventListener("click", async () => {
     const job = await pollJob(resp.job.id);
     if (job.state === "done") {
       const out = job.result.output;
-      setStatus("Render done: " + out);
-      // offer to open output in player.
-      if (confirm("Render done.\n" + out + "\n\nLoad output into the player?")) {
+      setStatus("Render done · " + out);
+      if (confirm("剪辑完成 🎾\n" + out + "\n\n要把成品载入播放器查看吗？")) {
         player.src = `/file?path=${encodeURIComponent(out)}`;
         player.currentTime = 0;
       }
     } else if (job.state === "cancelled") {
       setStatus("Render cancelled.");
+      setStep(2);
     } else {
       setStatus("Render failed: " + (job.error || "unknown"));
+      setStep(2);
     }
   } catch (e) {
     setStatus("Render error: " + e.message);
+    setStep(2);
   } finally {
     setProgress(null);
     $("cancelBtn").hidden = true;
@@ -405,64 +1220,89 @@ async function pollJob(id) {
   }
 }
 
-/* ---------------- table & editing ---------------- */
-function renderTable() {
-  rowsTbody.innerHTML = "";
+/* ---------------- presets ---------------- */
+const PRESETS = {
+  full:  { prePad: 2.5, postPad: 4.0, minHits: 3, maxCand: 200 },
+  tight: { prePad: 1.0, postPad: 1.0, minHits: 4, maxCand: 100 },
+  ultra: { prePad: 0.5, postPad: 0.7, minHits: 5, maxCand: 60  },
+};
+function applyPreset(name) {
+  const p = PRESETS[name]; if (!p) return;
+  $("prePad").value = p.prePad;
+  $("postPad").value = p.postPad;
+  $("minHits").value = p.minHits;
+  $("maxCand").value = p.maxCand;
+  for (const b of document.querySelectorAll(".preset")) {
+    b.classList.toggle("active", b.dataset.preset === name);
+  }
+}
+for (const b of document.querySelectorAll(".preset")) {
+  b.addEventListener("click", () => applyPreset(b.dataset.preset));
+}
+
+/* ---------------- clip list ---------------- */
+function renderClips() {
+  cliplist.innerHTML = "";
   $("totalCount").textContent = state.clips.length;
   if (!state.clips.length) {
-    tbl.hidden = true; empty.hidden = false;
+    cliplist.hidden = true; empty.hidden = false;
     $("keepCount").textContent = "0"; return;
   }
-  empty.hidden = true; tbl.hidden = false;
+  empty.hidden = true; cliplist.hidden = false;
   for (const c of state.clips) {
-    const tr = document.createElement("tr");
-    tr.dataset.idx = c.idx;
-    if (c.idx === state.activeIdx) tr.classList.add("playing");
-    if (c.keep) tr.classList.add("kept");
+    const card = document.createElement("div");
+    card.className = "clip";
+    card.dataset.idx = c.idx;
+    if (c.idx === state.activeIdx) card.classList.add("playing");
+    if (c.keep) card.classList.add("kept");
 
-    const tdKeep = document.createElement("td");
+    // keep column
+    const keepCol = document.createElement("div"); keepCol.className = "keep-col";
     const cb = document.createElement("input");
     cb.type = "checkbox"; cb.checked = c.keep;
     cb.addEventListener("change", () => {
-      c.keep = cb.checked; tr.classList.toggle("kept", c.keep); updateKeepCount();
+      c.keep = cb.checked; card.classList.toggle("kept", c.keep); updateKeepCount();
     });
-    tdKeep.appendChild(cb);
+    keepCol.appendChild(cb);
 
-    const tdId = document.createElement("td");
-    tdId.className = "id"; tdId.textContent = c.id;
+    // body
+    const body = document.createElement("div"); body.className = "body";
+    const id = document.createElement("div"); id.className = "clipid"; id.textContent = c.id;
+    const tcs = document.createElement("div"); tcs.className = "timecodes";
+    const startInp = makeTimeInput(c, "startSec");
+    const endInp = makeTimeInput(c, "endSec");
+    const arrow = document.createElement("span"); arrow.className = "arrow"; arrow.textContent = "→";
+    tcs.append(startInp, arrow, endInp);
+    const meta = document.createElement("div"); meta.className = "meta";
+    meta.textContent = metaText(c);
+    body.append(id, tcs, meta);
 
-    const tdStart = makeTimeCell(c, "startSec");
-    const tdEnd = makeTimeCell(c, "endSec");
-
-    const tdMeta = document.createElement("td");
-    tdMeta.className = "meta";
-    tdMeta.textContent = metaText(c);
-
-    const tdAct = document.createElement("td");
-    tdAct.className = "act";
-    const wrap = document.createElement("div"); wrap.className = "row-actions";
-    wrap.append(
+    // actions
+    const actCol = document.createElement("div"); actCol.className = "actions-col";
+    const rowAct = document.createElement("div"); rowAct.className = "row-actions";
+    rowAct.append(
       mkBtn("▶", "Preview", () => playClip(c.idx)),
       mkBtn("⤓", "Seek to start", () => seekTo(c.idx, "start")),
-      mkBtn("-1s", "Start −1s", () => nudge(c, "startSec", -1)),
-      mkBtn("+1s", "Start +1s", () => nudge(c, "startSec", +1)),
+      mkBtn("S−1", "Start −1s", () => nudge(c, "startSec", -1)),
+      mkBtn("S+1", "Start +1s", () => nudge(c, "startSec", +1)),
       mkBtn("✂◀", "Set start = playhead", () => setFromPlayhead(c, "startSec")),
       mkBtn("✂▶", "Set end = playhead", () => setFromPlayhead(c, "endSec")),
-      mkBtn("E-1", "End −1s", () => nudge(c, "endSec", -1)),
+      mkBtn("E−1", "End −1s", () => nudge(c, "endSec", -1)),
       mkBtn("E+1", "End +1s", () => nudge(c, "endSec", +1)),
     );
-    tdAct.appendChild(wrap);
-    tr.append(tdKeep, tdId, tdStart, tdEnd, tdMeta, tdAct);
-    rowsTbody.appendChild(tr);
+    actCol.appendChild(rowAct);
+
+    card.append(keepCol, body, actCol);
+    card._startInput = startInp; card._endInput = endInp; card._meta = meta;
+    cliplist.appendChild(card);
   }
   updateKeepCount();
 }
 function metaText(c) {
   const dur = c.endSec - c.startSec;
-  return `dur=${dur.toFixed(1)}s · ${c.reason || ""}`;
+  return `dur ${dur.toFixed(1)}s · ${c.reason || "candidate"}`;
 }
-function makeTimeCell(c, key) {
-  const td = document.createElement("td"); td.className = "t";
+function makeTimeInput(c, key) {
   const inp = document.createElement("input");
   inp.value = secToTs(c[key]); inp.spellcheck = false;
   inp.addEventListener("change", () => {
@@ -473,7 +1313,7 @@ function makeTimeCell(c, key) {
     inp.value = secToTs(c[key]);
     refreshMeta(c);
   });
-  td.appendChild(inp); td._input = inp; return td;
+  return inp;
 }
 function clampTime(c, key, v) {
   v = Math.max(0, Math.min(state.duration || v, v));
@@ -482,11 +1322,11 @@ function clampTime(c, key, v) {
   return v;
 }
 function refreshMeta(c) {
-  const tr = rowsTbody.querySelector(`tr[data-idx="${c.idx}"]`);
-  if (!tr) return;
-  tr.children[2]._input.value = secToTs(c.startSec);
-  tr.children[3]._input.value = secToTs(c.endSec);
-  tr.children[4].textContent = metaText(c);
+  const card = cliplist.querySelector(`.clip[data-idx="${c.idx}"]`);
+  if (!card) return;
+  card._startInput.value = secToTs(c.startSec);
+  card._endInput.value = secToTs(c.endSec);
+  card._meta.textContent = metaText(c);
 }
 function nudge(c, key, d) { c[key] = clampTime(c, key, c[key]+d); refreshMeta(c); }
 function setFromPlayhead(c, key) { c[key] = clampTime(c, key, player.currentTime); refreshMeta(c); }
@@ -503,17 +1343,19 @@ function playClip(idx) {
 }
 function setActive(idx) {
   state.activeIdx = idx;
-  for (const tr of rowsTbody.querySelectorAll("tr")) {
-    tr.classList.toggle("playing", +tr.dataset.idx === idx);
+  for (const card of cliplist.querySelectorAll(".clip")) {
+    card.classList.toggle("playing", +card.dataset.idx === idx);
   }
   const c = state.clips[idx];
   $("playingId").textContent = c ? c.id : "—";
-  if (c) rowsTbody.querySelector(`tr[data-idx="${idx}"]`)?.scrollIntoView({block:"nearest"});
+  if (c) cliplist.querySelector(`.clip[data-idx="${idx}"]`)?.scrollIntoView({block:"nearest"});
 }
 function updateKeepCount() {
   const n = state.clips.filter(c => c.keep).length;
   $("keepCount").textContent = n;
   $("renderBtn").disabled = n === 0 || !state.videoPath;
+  if (n > 0) setStep(3);
+  else if (state.clips.length) setStep(2);
 }
 function mkBtn(label, title, fn) {
   const b = document.createElement("button");
@@ -530,7 +1372,16 @@ document.addEventListener("keydown", e => {
   else if (e.key === " ") { e.preventDefault(); if (player.paused) player.play(); else player.pause(); }
   else if (e.key === "x" || e.key === "X" || e.key === "Enter") {
     e.preventDefault();
-    if (state.activeIdx >= 0) { const c = state.clips[state.activeIdx]; c.keep = !c.keep; renderTable(); setActive(state.activeIdx); }
+    if (state.activeIdx >= 0) {
+      const c = state.clips[state.activeIdx];
+      c.keep = !c.keep;
+      const card = cliplist.querySelector(`.clip[data-idx="${c.idx}"]`);
+      if (card) {
+        card.classList.toggle("kept", c.keep);
+        card.querySelector(".keep-col input").checked = c.keep;
+      }
+      updateKeepCount();
+    }
   }
 });
 
@@ -538,8 +1389,11 @@ document.addEventListener("keydown", e => {
   try {
     const info = await api("/api/info");
     setStatus(`Backend ready · root: ${info.root}`);
+    $("status-pill").textContent = "Server " + (info.root || "ready");
   } catch (e) {
     setStatus("Backend not reachable: " + e.message);
+    $("status-pill").textContent = "Offline";
+    $("status-pill").style.background = "var(--clay)";
   }
 })();
 </script>
