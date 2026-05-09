@@ -1,6 +1,9 @@
 output/
-output2/
+output*/
 web/static/temp/
 __pycache__/
 *.pyc
 *.wav
+*.MP4
+*.mp4
+tests/

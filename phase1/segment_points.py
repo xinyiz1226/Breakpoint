@@ -1,6 +1,31 @@
 import numpy as np
 
 
+def _trim_sparse_head(hit_times_seg, avg_gap_threshold=3.0):
+    """Find the index where dense hitting starts.
+
+    If the first few hits have gaps much larger than the rest,
+    skip them — they're likely from an adjacent court.
+    """
+    n = len(hit_times_seg)
+    if n < 4:
+        return 0
+
+    gaps = [hit_times_seg[i] - hit_times_seg[i - 1] for i in range(1, n)]
+    median_gap = float(np.median(gaps))
+    if median_gap <= 0:
+        return 0
+
+    trim_idx = 0
+    for i, g in enumerate(gaps):
+        if g > median_gap * avg_gap_threshold:
+            trim_idx = i + 1
+        else:
+            break
+
+    return trim_idx
+
+
 def segment_points(
     hit_times: np.ndarray,
     hit_energies: np.ndarray,
@@ -8,6 +33,7 @@ def segment_points(
     buffer: float = 1.5,
     min_duration: float = 4.0,
     max_duration: float = 25.0,
+    min_hit_count: int = 4,
     total_duration: float | None = None,
 ) -> list[dict]:
     """Segment hits into individual points/rallies.
@@ -33,6 +59,13 @@ def segment_points(
 
     points = []
     for start_idx, end_idx in refined:
+        # Trim sparse leading hits (likely from adjacent court)
+        trim = _trim_sparse_head(hit_times[start_idx:end_idx])
+        start_idx += trim
+
+        if end_idx - start_idx < min_hit_count:
+            continue
+
         t_start = max(0, hit_times[start_idx] - buffer)
         t_end = hit_times[end_idx - 1] + buffer
         if total_duration is not None:

@@ -172,7 +172,17 @@
       "Bash(py -3.12 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Segments: {len\\(d.get\\(\\\\\"segments\\\\\",[]\\)\\)}'\\); [print\\(f'  #{s[\\\\\"id\\\\\"]}: {s[\\\\\"start\\\\\"]:.1f}-{s[\\\\\"end\\\\\"]:.1f}s \\({s[\\\\\"hit_count\\\\\"]} hits\\)'\\) for s in d.get\\('segments',[]\\)[:5]]\")",
       "Bash(curl -s -X POST http://localhost:5000/analyze -H 'Content-Type: application/json; charset=utf-8' --data-binary '{\"video_path\": \"D:/Pictures/网球/2026.5.3/DJI_20260503154223_0534_D.MP4\"}')",
       "Bash(curl -s -X POST http://localhost:5000/analyze -H 'Content-Type: application/json' -d '{\"video_path\": \"D:/nonexist.mp4\"}')",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5000/video?path=D:/Pictures/%E7%BD%91%E7%90%83/2026.5.3/DJI_20260503154223_0534_D.MP4\" -H \"Range: bytes=0-1000\")"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5000/video?path=D:/Pictures/%E7%BD%91%E7%90%83/2026.5.3/DJI_20260503154223_0534_D.MP4\" -H \"Range: bytes=0-1000\")",
+      "Bash(py -3.12 phase1/pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503154223_0534_D.MP4\" --vision --no-compile)",
+      "Bash(py -3.12 phase2/player_motion.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503154223_0534_D.MP4\" --filter-debug)",
+      "Bash(py -3.12 phase1/pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503154223_0534_D.MP4\" --no-compile)",
+      "Bash(py -3.12 compare.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503154223_0534_D.MP4\" \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\1777801854000.MP4\")",
+      "Bash(py -3.12 pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503150415_0533_D.MP4\" --no-compile --reference \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\1777803838000.MP4\")",
+      "Bash(py -3.12 pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503154223_0534_D.MP4\" --no-compile --reference \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\1777801854000.MP4\")",
+      "Bash(py -3.12 pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503154223_0534_D.MP4\" -o output_0534 --no-compile --reference \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\1777801854000.MP4\")",
+      "Bash(py -3.12 pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503150415_0533_D.MP4\" -o output_0533 --no-compile --reference \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\1777803838000.MP4\")",
+      "Bash(git lfs *)",
+      "Bash(git rm *)"
     ],
     "additionalDirectories": [
       "\\tmp"

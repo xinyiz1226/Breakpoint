@@ -17,6 +17,7 @@ def run_pipeline(
     silence_gap: float = 6.0,
     buffer: float = 1.5,
     compile_video: bool = True,
+    vision: bool = False,
 ):
     video = Path(video_path)
     out = Path(output_dir)
@@ -36,8 +37,19 @@ def run_pipeline(
     points = segment_points(hit_times, hit_energies, silence_gap=silence_gap, buffer=buffer)
     print(f"  Found {len(points)} points/rallies")
 
+    vision_data = None
+    if vision:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase2"))
+        from player_motion import select_rois, analyze_motion
+        print("[3.5/5] Analyzing player motion (vision)...")
+        t0 = time.time()
+        rois = select_rois(video_path)
+        vision_data = analyze_motion(video_path, points, rois)
+        print(f"  Done in {time.time() - t0:.1f}s")
+
     print("[4/5] Ranking points...")
-    ranked = rank_points(points)
+    ranked = rank_points(points, vision_data=vision_data)
     n = top_n if top_n > 0 else len(ranked)
     for i, p in enumerate(ranked[:n]):
         dur = p["end"] - p["start"]
@@ -68,6 +80,8 @@ def run_pipeline(
     print(f"\nFull report saved to {full_report}")
     print(f"Total points: {len(ranked)}, exported top {min(top_n, len(ranked))}")
 
+    return ranked
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tennis highlight extraction pipeline")
@@ -77,13 +91,22 @@ if __name__ == "__main__":
     parser.add_argument("--silence-gap", type=float, default=6.0, help="Silence gap threshold (seconds)")
     parser.add_argument("--buffer", type=float, default=1.5, help="Buffer before/after each point (seconds)")
     parser.add_argument("--no-compile", action="store_true", help="Skip compilation into single video")
+    parser.add_argument("--vision", action="store_true", help="Enable vision-based player motion analysis")
+    parser.add_argument("--reference", help="Hand-edited reference video for comparison")
     args = parser.parse_args()
 
-    run_pipeline(
+    ranked = run_pipeline(
         args.video,
         output_dir=args.output,
         top_n=args.top_n,
         silence_gap=args.silence_gap,
         buffer=args.buffer,
         compile_video=not args.no_compile,
+        vision=args.vision,
     )
+
+    if args.reference:
+        from compare import compare_with_reference, print_report
+        print("\n[Compare] Comparing with reference video...")
+        result = compare_with_reference(args.video, args.reference, pipeline_segments=ranked)
+        print_report(result)
