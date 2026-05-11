@@ -318,16 +318,32 @@ def _roi_foreground_ratio(fg_mask, roi):
     return float(np.count_nonzero(crop)) / (w * h)
 
 
-def analyze_motion(video_path: str, segments: list[dict], rois: dict) -> list[dict]:
+def _scale_roi(roi, scale):
+    """Scale polygon ROI coordinates by a factor."""
+    return [[int(x * scale), int(y * scale)] for x, y in roi]
+
+
+def analyze_motion(video_path: str, segments: list[dict], rois: dict, target_height: int = 540) -> list[dict]:
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
         fps = 30.0
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    near_roi = rois["near"]
-    far_roi = rois["far"]
-    sample_interval = 2
+    orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    scale = target_height / orig_h if orig_h > target_height else 1.0
+    target_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) * scale) if scale < 1.0 else None
+
+    kernel_size = 3 if scale < 0.75 else 5
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+
+    if scale < 1.0:
+        near_roi = _scale_roi(rois["near"], scale)
+        far_roi = _scale_roi(rois["far"], scale)
+    else:
+        near_roi = rois["near"]
+        far_roi = rois["far"]
+
+    sample_interval = 4
 
     results = []
     for seg_idx, seg in enumerate(segments):
@@ -349,6 +365,9 @@ def analyze_motion(video_path: str, segments: list[dict], rois: dict) -> list[di
             if not ret:
                 break
             frame_count += 1
+
+            if scale < 1.0:
+                frame = cv2.resize(frame, (target_w, target_height), interpolation=cv2.INTER_AREA)
 
             if frame_count <= warmup_frames:
                 mog.apply(frame)
