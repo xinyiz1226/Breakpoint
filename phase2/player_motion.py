@@ -483,10 +483,9 @@ def filter_hits_by_vision(
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase1"))
-    from extract_audio import extract_audio
-    from detect_hits import detect_hits
-    from segment_points import segment_points
+    from phase1.extract_audio import extract_audio
+    from phase1.detect_hits import detect_hits
+    from phase1.segment_points import segment_points
 
     if len(sys.argv) < 2:
         print("Usage: python player_motion.py <video_path> [--filter-debug]")

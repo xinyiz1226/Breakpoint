@@ -1,6 +1,7 @@
-import subprocess
 import sys
 from pathlib import Path
+
+from phase1.ffutil import run_ffmpeg
 
 
 def extract_audio(video_path: str, output_path: str | None = None, sr: int = 22050) -> str:
@@ -17,7 +18,7 @@ def extract_audio(video_path: str, output_path: str | None = None, sr: int = 220
         "-ar", str(sr), "-ac", "1",
         output_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_ffmpeg(cmd)
     return output_path
 
 

@@ -28,8 +28,8 @@ def _check_roi_cache():
 
 
 def run_one(tag, stem, output_root, vision):
-    from analyze import run_analysis
-    from compare import compare_with_reference
+    from phase1.analyze import run_analysis
+    from phase1.compare import compare_with_reference
 
     vid_path = str(TESTS_DIR / f"{stem}.MP4")
     ref_path = str(TESTS_DIR / f"{stem}_highlight.MP4")
@@ -60,8 +60,7 @@ def main():
         uncached = [(tag, stem) for tag, stem in VIDEOS if f"{stem}.MP4" not in cached]
         if uncached:
             print(f"{len(uncached)} videos need ROI calibration (interactive):\n")
-            sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase2"))
-            from player_motion import select_rois
+            from phase2.player_motion import select_rois
             for tag, stem in uncached:
                 vid_path = str(TESTS_DIR / f"{stem}.MP4")
                 print(f"  [{tag}] Calibrating ROIs for {stem}...")
@@ -104,8 +103,8 @@ def main():
         ref = r["reference_count"]
         matched = r["matched"]
         cov = r["coverage"]
-        prec = matched / pipe if pipe > 0 else 0
-        f1 = 2 * prec * cov / (prec + cov) if (prec + cov) > 0 else 0
+        prec = r["precision"]
+        f1 = r["f1"]
         print(f"{tag:>6} | {pipe:>8} | {ref:>4} | {matched:>7} | {cov*100:>7.1f}% | {prec*100:>8.1f}% | {f1:>5.3f}")
         total_pipe += pipe
         total_ref += ref

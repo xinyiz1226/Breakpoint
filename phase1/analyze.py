@@ -3,10 +3,10 @@ import json
 import time
 from pathlib import Path
 
-from extract_audio import extract_audio
-from detect_hits import detect_hits
-from segment_points import segment_points
-from rank_points import rank_points
+from phase1.extract_audio import extract_audio
+from phase1.detect_hits import detect_hits
+from phase1.segment_points import segment_points
+from phase1.rank_points import rank_points
 
 
 def run_analysis(
@@ -15,6 +15,7 @@ def run_analysis(
     silence_gap: float = 6.0,
     buffer: float = 1.5,
     vision: bool = True,
+    vision_keep: float = 0.7,
 ) -> list[dict]:
     video = Path(video_path)
     if output_dir is None:
@@ -38,9 +39,7 @@ def run_analysis(
 
     vision_data = None
     if vision:
-        import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase2"))
-        from player_motion import select_rois, analyze_motion
+        from phase2.player_motion import select_rois, analyze_motion
         print("[3.5/4] Analyzing player motion (vision)...")
         t0 = time.time()
         rois = select_rois(video_path)
@@ -50,7 +49,7 @@ def run_analysis(
     print("[4/4] Ranking points...")
     ranked = rank_points(points, vision_data=vision_data)
     if vision_data and len(ranked) > 1:
-        keep_count = max(1, int(len(ranked) * 0.7))
+        keep_count = max(1, int(len(ranked) * vision_keep))
         removed = len(ranked) - keep_count
         ranked = ranked[:keep_count]
         print(f"  Vision filter: kept top {keep_count}, removed bottom {removed}")
@@ -82,6 +81,7 @@ if __name__ == "__main__":
     parser.add_argument("--silence-gap", type=float, default=6.0, help="Silence gap threshold (seconds)")
     parser.add_argument("--buffer", type=float, default=1.5, help="Buffer before/after each point (seconds)")
     parser.add_argument("--no-vision", action="store_true", help="Disable vision-based player motion analysis")
+    parser.add_argument("--vision-keep", type=float, default=0.7, help="Fraction of segments to keep after vision ranking (0-1, default 0.7)")
     parser.add_argument("--reference", help="Hand-edited reference video for comparison")
     args = parser.parse_args()
 
@@ -91,10 +91,11 @@ if __name__ == "__main__":
         silence_gap=args.silence_gap,
         buffer=args.buffer,
         vision=not args.no_vision,
+        vision_keep=args.vision_keep,
     )
 
     if args.reference:
-        from compare import compare_with_reference, print_report
+        from phase1.compare import compare_with_reference, print_report
         print("\n[Compare] Comparing with reference video...")
         result = compare_with_reference(args.video, args.reference, pipeline_segments=ranked)
         print_report(result)

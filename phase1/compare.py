@@ -4,10 +4,10 @@ import numpy as np
 import librosa
 from pathlib import Path
 
-from extract_audio import extract_audio
-from detect_hits import detect_hits
-from segment_points import segment_points
-from rank_points import rank_points
+from phase1.extract_audio import extract_audio
+from phase1.detect_hits import detect_hits
+from phase1.segment_points import segment_points
+from phase1.rank_points import rank_points
 
 
 def compare_with_reference(
@@ -17,6 +17,8 @@ def compare_with_reference(
     match_tolerance: float = 20.0,
 ) -> dict:
     ref_audio = extract_audio(reference_path)
+    orig_audio = extract_audio(video_path)
+
     ref_hits, ref_energies, _ = detect_hits(ref_audio)
     ref_points = segment_points(
         ref_hits, ref_energies,
@@ -24,12 +26,9 @@ def compare_with_reference(
     )
 
     if pipeline_segments is None:
-        orig_audio = extract_audio(video_path)
         orig_hits, orig_energies, _ = detect_hits(orig_audio)
         orig_points = segment_points(orig_hits, orig_energies)
         pipeline_segments = rank_points(orig_points)
-
-    orig_audio = extract_audio(video_path)
     hop = 4096
     sr = 22050
     y_ref, _ = librosa.load(ref_audio, sr=sr)
@@ -100,12 +99,16 @@ def compare_with_reference(
             missed.append(m)
 
     coverage = matched / len(unique) if unique else 0.0
+    precision = matched / len(pipeline_segments) if pipeline_segments else 0.0
+    f1 = 2 * precision * coverage / (precision + coverage) if (precision + coverage) > 0 else 0.0
     return {
         "reference_count": len(unique),
         "pipeline_count": len(pipeline_segments),
         "matched": matched,
         "missed": missed,
         "coverage": round(coverage, 4),
+        "precision": round(precision, 4),
+        "f1": round(f1, 4),
         "details": details,
     }
 
@@ -114,7 +117,9 @@ def print_report(result: dict):
     print(f"\nReference rallies: {result['reference_count']}")
     print(f"Pipeline segments: {result['pipeline_count']}")
     print(f"Matched: {result['matched']}/{result['reference_count']} "
-          f"({result['coverage'] * 100:.1f}%)")
+          f"(coverage={result['coverage'] * 100:.1f}%, "
+          f"precision={result['precision'] * 100:.1f}%, "
+          f"F1={result['f1']:.3f})")
     print("\nDetails:")
     for d in result["details"]:
         t = d["mapped_orig_time"]

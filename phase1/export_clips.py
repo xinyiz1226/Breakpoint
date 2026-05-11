@@ -1,6 +1,7 @@
-import subprocess
 import json
 from pathlib import Path
+
+from phase1.ffutil import run_ffmpeg
 
 
 def export_clips(
@@ -32,7 +33,7 @@ def export_clips(
             "-avoid_negative_ts", "make_zero",
             clip_path,
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        run_ffmpeg(cmd)
         exported.append(clip_path)
 
     report_path = str(out / "report.json")
@@ -77,5 +78,5 @@ def export_compilation(
         "-map", "[outv]", "-map", "[outa]",
         output_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_ffmpeg(cmd)
     return output_path

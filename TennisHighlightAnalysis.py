@@ -2,10 +2,8 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "phase1"))
-
-from analyze import run_analysis
-from compile import compile_highlights
+from phase1.analyze import run_analysis
+from phase1.compile import compile_highlights
 
 
 def main():
@@ -15,6 +13,7 @@ def main():
     parser.add_argument("--silence-gap", type=float, default=6.0, help="Silence gap threshold (seconds)")
     parser.add_argument("--buffer", type=float, default=1.5, help="Buffer before/after each point (seconds)")
     parser.add_argument("--no-vision", action="store_true", help="Disable vision-based analysis")
+    parser.add_argument("--vision-keep", type=float, default=0.7, help="Fraction of segments to keep after vision ranking (0-1, default 0.7)")
     parser.add_argument("--no-compile", action="store_true", help="Only analyze, skip highlight compilation")
     parser.add_argument("--reference", help="Hand-edited reference video for comparison")
     args = parser.parse_args()
@@ -32,6 +31,7 @@ def main():
         silence_gap=args.silence_gap,
         buffer=args.buffer,
         vision=not args.no_vision,
+        vision_keep=args.vision_keep,
     )
 
     if not args.no_compile and ranked:
@@ -39,7 +39,7 @@ def main():
         compile_highlights(args.video, timeline_path)
 
     if args.reference:
-        from compare import compare_with_reference, print_report
+        from phase1.compare import compare_with_reference, print_report
         print("\n[Compare] Comparing with reference video...")
         result = compare_with_reference(args.video, args.reference, pipeline_segments=ranked)
         print_report(result)

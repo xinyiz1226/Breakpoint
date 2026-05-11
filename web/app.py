@@ -5,13 +5,11 @@ import json
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase1"))
-
 from flask import Flask, request, jsonify, render_template, Response
-from extract_audio import extract_audio
-from detect_hits import detect_hits
-from segment_points import segment_points
-from rank_points import rank_points
+from phase1.extract_audio import extract_audio
+from phase1.detect_hits import detect_hits
+from phase1.segment_points import segment_points
+from phase1.rank_points import rank_points
 
 app = Flask(__name__)
 

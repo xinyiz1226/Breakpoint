@@ -1,7 +1,8 @@
 import argparse
 import json
-import subprocess
 from pathlib import Path
+
+from phase1.ffutil import run_ffmpeg
 
 
 def compile_highlights(
@@ -43,7 +44,7 @@ def compile_highlights(
     ]
 
     print(f"Compiling {len(clips)} segments into {output_path}...")
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_ffmpeg(cmd)
     print(f"Done. Output: {output_path}")
     return output_path
 
