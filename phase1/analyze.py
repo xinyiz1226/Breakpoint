@@ -7,33 +7,32 @@ from extract_audio import extract_audio
 from detect_hits import detect_hits
 from segment_points import segment_points
 from rank_points import rank_points
-from export_clips import export_clips, export_compilation
 
 
-def run_pipeline(
+def run_analysis(
     video_path: str,
-    output_dir: str = "output",
-    top_n: int = 0,
+    output_dir: str | None = None,
     silence_gap: float = 6.0,
     buffer: float = 1.5,
-    compile_video: bool = True,
     vision: bool = True,
-):
+) -> list[dict]:
     video = Path(video_path)
+    if output_dir is None:
+        output_dir = str(video.parent / f"output_{video.stem}")
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    print(f"[1/5] Extracting audio from {video.name}...")
+    print(f"[1/4] Extracting audio from {video.name}...")
     t0 = time.time()
     audio_path = extract_audio(video_path, str(out / "audio.wav"))
     print(f"  Done in {time.time() - t0:.1f}s")
 
-    print("[2/5] Detecting hits...")
+    print("[2/4] Detecting hits...")
     t0 = time.time()
     hit_times, hit_energies, sr = detect_hits(audio_path)
     print(f"  Found {len(hit_times)} hits in {time.time() - t0:.1f}s")
 
-    print("[3/5] Segmenting points...")
+    print("[3/4] Segmenting points...")
     points = segment_points(hit_times, hit_energies, silence_gap=silence_gap, buffer=buffer)
     print(f"  Found {len(points)} points/rallies")
 
@@ -42,38 +41,26 @@ def run_pipeline(
         import sys as _sys
         _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase2"))
         from player_motion import select_rois, analyze_motion
-        print("[3.5/5] Analyzing player motion (vision)...")
+        print("[3.5/4] Analyzing player motion (vision)...")
         t0 = time.time()
         rois = select_rois(video_path)
         vision_data = analyze_motion(video_path, points, rois)
         print(f"  Done in {time.time() - t0:.1f}s")
 
-    print("[4/5] Ranking points...")
+    print("[4/4] Ranking points...")
     ranked = rank_points(points, vision_data=vision_data)
     if vision_data and len(ranked) > 1:
         keep_count = max(1, int(len(ranked) * 0.7))
         removed = len(ranked) - keep_count
         ranked = ranked[:keep_count]
         print(f"  Vision filter: kept top {keep_count}, removed bottom {removed}")
-    n = top_n if top_n > 0 else len(ranked)
-    for i, p in enumerate(ranked[:n]):
+
+    for i, p in enumerate(ranked):
         dur = p["end"] - p["start"]
         hits = p["features"]["hit_count"]
         print(f"  #{i+1}: {p['start']:.1f}s-{p['end']:.1f}s ({dur:.1f}s, {hits} hits, score={p['score']:.3f})")
 
-    print(f"[5/5] Exporting {n} clips...")
-    t0 = time.time()
-    clips_dir = str(out / "clips")
-    exported = export_clips(video_path, ranked, clips_dir, n)
-    print(f"  Exported {len(exported)} files in {time.time() - t0:.1f}s")
-
-    if compile_video:
-        print("  Compiling highlight video...")
-        comp_path = str(out / "highlights.mp4")
-        export_compilation(video_path, ranked, comp_path, n)
-        print(f"  Saved to {comp_path}")
-
-    full_report = str(out / "full_report.json")
+    report_path = str(out / "full_report.json")
     report_data = [{
         "index": i + 1,
         "start": p["start"],
@@ -81,32 +68,28 @@ def run_pipeline(
         "score": p["score"],
         "features": p["features"],
     } for i, p in enumerate(ranked)]
-    Path(full_report).write_text(json.dumps(report_data, indent=2, ensure_ascii=False))
-    print(f"\nFull report saved to {full_report}")
-    print(f"Total points: {len(ranked)}, exported top {min(top_n, len(ranked))}")
+    Path(report_path).write_text(json.dumps(report_data, indent=2, ensure_ascii=False))
+    print(f"\nTimeline saved to {report_path}")
+    print(f"Total points: {len(ranked)}")
 
     return ranked
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Tennis highlight extraction pipeline")
+    parser = argparse.ArgumentParser(description="Tennis highlight analysis — audio + vision")
     parser.add_argument("video", help="Path to input video file")
-    parser.add_argument("-o", "--output", default="output", help="Output directory")
-    parser.add_argument("-n", "--top-n", type=int, default=0, help="Number of top highlights (0 = all)")
+    parser.add_argument("-o", "--output", default=None, help="Output directory (default: output_<video_stem>)")
     parser.add_argument("--silence-gap", type=float, default=6.0, help="Silence gap threshold (seconds)")
     parser.add_argument("--buffer", type=float, default=1.5, help="Buffer before/after each point (seconds)")
-    parser.add_argument("--no-compile", action="store_true", help="Skip compilation into single video")
     parser.add_argument("--no-vision", action="store_true", help="Disable vision-based player motion analysis")
     parser.add_argument("--reference", help="Hand-edited reference video for comparison")
     args = parser.parse_args()
 
-    ranked = run_pipeline(
+    ranked = run_analysis(
         args.video,
         output_dir=args.output,
-        top_n=args.top_n,
         silence_gap=args.silence_gap,
         buffer=args.buffer,
-        compile_video=not args.no_compile,
         vision=not args.no_vision,
     )
 

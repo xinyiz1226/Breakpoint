@@ -7,13 +7,264 @@ from pathlib import Path
 CACHE_PATH = Path(__file__).resolve().parent / "rois_cache.json"
 
 
+def _detect_court_corners(frame):
+    """Auto-detect tennis court corners using white lines on blue court surface."""
+    h, w = frame.shape[:2]
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    court_mask = cv2.inRange(hsv, (90, 40, 50), (130, 255, 255))
+    court_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    court_mask = cv2.morphologyEx(court_mask, cv2.MORPH_CLOSE, court_kernel, iterations=3)
+    court_mask = cv2.morphologyEx(court_mask, cv2.MORPH_OPEN, court_kernel, iterations=2)
+
+    dilated_court = cv2.dilate(court_mask, court_kernel, iterations=3)
+    white_mask = cv2.inRange(hsv, (0, 0, 180), (180, 60, 255))
+    white_mask = cv2.bitwise_and(white_mask, dilated_court)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    edges = cv2.Canny(white_mask, 50, 150)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60,
+                            minLineLength=80, maxLineGap=30)
+    if lines is None or len(lines) < 4:
+        return None
+
+    # Baselines: near-horizontal (<10° or >170°)
+    # Sidelines: diagonal (20-80° or 100-160°)
+    baselines = []
+    sidelines = []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1)) % 180
+        length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+        mid_y = (y1 + y2) / 2
+        mid_x = (x1 + x2) / 2
+        if angle < 10 or angle > 170:
+            baselines.append((x1, y1, x2, y2, length, angle, mid_y, mid_x))
+        elif 20 <= angle <= 80 or 100 <= angle <= 160:
+            sidelines.append((x1, y1, x2, y2, length, angle, mid_y, mid_x))
+
+    if len(baselines) < 2 or len(sidelines) < 2:
+        return None
+
+    # Split baselines into far (top) and near (bottom) by y-position
+    baseline_ys = sorted(set(int(l[6]) for l in baselines))
+    if len(baseline_ys) < 2:
+        return None
+    y_gap = max(baseline_ys) - min(baseline_ys)
+    if y_gap < 200:
+        return None
+    y_split = (min(baseline_ys) + max(baseline_ys)) / 2
+    top_baselines = [l for l in baselines if l[6] < y_split]
+    bot_baselines = [l for l in baselines if l[6] >= y_split]
+    if not top_baselines or not bot_baselines:
+        return None
+
+    def _cluster_baselines(candidates):
+        sorted_by_y = sorted(candidates, key=lambda l: l[6])
+        clusters = []
+        for l in sorted_by_y:
+            if clusters and abs(l[6] - clusters[-1][-1][6]) < 30:
+                clusters[-1].append(l)
+            else:
+                clusters.append([l])
+        return clusters
+
+    bot_clusters = _cluster_baselines(bot_baselines)
+    bot_clusters.reverse()
+    best_total_b = max(sum(l[4] for l in c) for c in bot_clusters)
+    min_len_b = best_total_b * 0.15
+    bot_cluster = next(c for c in bot_clusters if sum(l[4] for l in c) >= min_len_b)
+    bot_line = max(bot_cluster, key=lambda l: l[4])
+
+    top_clusters = _cluster_baselines(top_baselines)
+    dominant_top = max(top_clusters, key=lambda c: sum(l[4] for l in c))
+    dominant_y = int(np.mean([l[6] for l in dominant_top]))
+
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import find_peaks
+    proj = np.sum(white_mask > 0, axis=1).astype(float)
+    proj_smooth = gaussian_filter1d(proj, sigma=3)
+    dominant_min_y = int(min(l[6] for l in dominant_top))
+    search_top = max(0, dominant_min_y - 150)
+    search_bot = dominant_min_y - 10
+    if search_bot > search_top:
+        sub = proj_smooth[search_top:search_bot]
+        peaks, _ = find_peaks(sub, height=80, prominence=15)
+        if len(peaks) > 0:
+            best_peak = peaks[np.argmin(np.abs(search_top + peaks - dominant_min_y))]
+            far_baseline_y = search_top + best_peak
+            synthetic_top = (
+                int(bot_line[0]), far_baseline_y,
+                int(bot_line[2]), far_baseline_y,
+                int(bot_line[4]), 0.0, float(far_baseline_y), float((bot_line[0] + bot_line[2]) / 2)
+            )
+            top_line = synthetic_top
+        else:
+            top_line = max(dominant_top, key=lambda l: l[4])
+    else:
+        top_line = max(dominant_top, key=lambda l: l[4])
+    court_height = bot_line[6] - top_line[6]
+
+    def line_params(l):
+        x1, y1, x2, y2 = l[:4]
+        a = y2 - y1
+        b = x1 - x2
+        c = a * x1 + b * y1
+        return a, b, c
+
+    def intersect(l1, l2):
+        a1, b1, c1 = line_params(l1)
+        a2, b2, c2 = line_params(l2)
+        det = a1 * b2 - a2 * b1
+        if abs(det) < 1e-6:
+            return None
+        x = (c1 * b2 - c2 * b1) / det
+        y = (a1 * c2 - a2 * c1) / det
+        return [int(round(x)), int(round(y))]
+
+    # Score each sideline by how well its intersections with the baselines
+    # land near the baseline endpoints (within frame, near baseline y)
+    def score_sideline(sl):
+        pt_top = intersect(top_line, sl)
+        pt_bot = intersect(bot_line, sl)
+        if pt_top is None or pt_bot is None:
+            return -1
+        # Intersection y should be close to the baseline y
+        dy_top = abs(pt_top[1] - top_line[6])
+        dy_bot = abs(pt_bot[1] - bot_line[6])
+        if dy_top > 100 or dy_bot > 100:
+            return -1
+        # Intersection x should be within frame (with margin)
+        if pt_top[0] < -50 or pt_top[0] > w + 50:
+            return -1
+        if pt_bot[0] < -50 or pt_bot[0] > w + 50:
+            return -1
+        return sl[4]  # use length as score among valid sidelines
+
+    scored = [(score_sideline(sl), sl) for sl in sidelines]
+    valid = [(s, sl) for s, sl in scored if s > 0]
+    if len(valid) < 2:
+        return None
+
+    # Split valid sidelines into left/right by their intersection x with bot baseline
+    for i, (s, sl) in enumerate(valid):
+        pt_bot = intersect(bot_line, sl)
+        valid[i] = (s, sl, pt_bot[0])  # add bot_x
+
+    bot_mid_x = (bot_line[0] + bot_line[2]) / 2
+    left_valid = [(s, sl) for s, sl, bx in valid if bx < bot_mid_x]
+    right_valid = [(s, sl) for s, sl, bx in valid if bx >= bot_mid_x]
+
+    if not left_valid or not right_valid:
+        return None
+
+    # Pick outermost sidelines (leftmost left, rightmost right)
+    left_line = min(left_valid, key=lambda x: intersect(bot_line, x[1])[0])[1]
+    right_line = max(right_valid, key=lambda x: intersect(bot_line, x[1])[0])[1]
+
+    tl = intersect(top_line, left_line)
+    tr = intersect(top_line, right_line)
+    bl = intersect(bot_line, left_line)
+    br = intersect(bot_line, right_line)
+
+    if any(p is None for p in [tl, tr, bl, br]):
+        return None
+
+    margin = -100
+    for pt in [tl, tr, bl, br]:
+        if pt[0] < margin or pt[0] > w - margin or pt[1] < margin or pt[1] > h - margin:
+            return None
+
+    pts = np.array([tl, tr, br, bl], dtype=np.float64)
+    area = 0.5 * abs(
+        (pts[0][0] * pts[1][1] - pts[1][0] * pts[0][1]) +
+        (pts[1][0] * pts[2][1] - pts[2][0] * pts[1][1]) +
+        (pts[2][0] * pts[3][1] - pts[3][0] * pts[2][1]) +
+        (pts[3][0] * pts[0][1] - pts[0][0] * pts[3][1])
+    )
+    frame_area = h * w
+    if area < 0.05 * frame_area or area > 0.60 * frame_area:
+        return None
+
+    return {"tl": tl, "tr": tr, "bl": bl, "br": br}
+
+
+def _corners_to_rois(corners):
+    """Split court corners into near (bottom) and far (top) trapezoid ROIs."""
+    tl, tr, bl, br = corners["tl"], corners["tr"], corners["bl"], corners["br"]
+    # Net line = midpoints of sidelines
+    mid_left = [int((tl[0] + bl[0]) / 2), int((tl[1] + bl[1]) / 2)]
+    mid_right = [int((tr[0] + br[0]) / 2), int((tr[1] + br[1]) / 2)]
+
+    far = [tl, tr, mid_right, mid_left]   # top half
+    near = [mid_left, mid_right, br, bl]   # bottom half
+
+    return {"near": near, "far": far, "format": "polygon"}
+
+
+def _manual_select_corners(frame):
+    """Interactive 4-point selection as fallback."""
+    points = []
+    clone = frame.copy()
+    labels = ["top-left", "top-right", "bottom-right", "bottom-left"]
+
+    def click(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
+            points.append([x, y])
+            cv2.circle(clone, (x, y), 5, (0, 255, 0), -1)
+            if len(points) > 1:
+                cv2.line(clone, tuple(points[-2]), tuple(points[-1]), (0, 255, 0), 2)
+            if len(points) == 4:
+                cv2.line(clone, tuple(points[3]), tuple(points[0]), (0, 255, 0), 2)
+            cv2.imshow("Select Court Corners", clone)
+
+    cv2.namedWindow("Select Court Corners", cv2.WINDOW_NORMAL)
+    cv2.setMouseCallback("Select Court Corners", click)
+
+    print("Click the 4 court corners in order: top-left, top-right, bottom-right, bottom-left")
+    print("Press any key when done.")
+
+    while True:
+        cv2.imshow("Select Court Corners", clone)
+        key = cv2.waitKey(50)
+        if len(points) == 4 and key != -1:
+            break
+
+    cv2.destroyAllWindows()
+
+    if len(points) != 4:
+        raise RuntimeError("Need exactly 4 points for court corners")
+
+    return {"tl": points[0], "tr": points[1], "bl": points[3], "br": points[2]}
+
+
+def _convert_legacy_roi(roi_data):
+    """Convert old [x, y, w, h] format to polygon format."""
+    if roi_data.get("format") == "polygon":
+        return roi_data
+    near = roi_data["near"]
+    far = roi_data["far"]
+    x, y, w, h = near
+    near_poly = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+    x, y, w, h = far
+    far_poly = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+    return {"near": near_poly, "far": far_poly, "format": "polygon"}
+
+
 def select_rois(video_path: str) -> dict:
     video_name = Path(video_path).name
     if CACHE_PATH.exists():
         cache = json.loads(CACHE_PATH.read_text())
         if video_name in cache:
+            roi_data = cache[video_name]
+            roi_data = _convert_legacy_roi(roi_data)
+            if roi_data is not cache.get(video_name):
+                cache[video_name] = roi_data
+                CACHE_PATH.write_text(json.dumps(cache, indent=2))
             print(f"  Using cached ROIs for {video_name}")
-            return cache[video_name]
+            return roi_data
 
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
@@ -21,13 +272,17 @@ def select_rois(video_path: str) -> dict:
     if not ret:
         raise RuntimeError(f"Cannot read first frame from {video_path}")
 
-    print("Select NEAR-SIDE player region (bottom of court), then press ENTER/SPACE.")
-    near = cv2.selectROI("Select Near-Side ROI", frame, showCrosshair=True)
-    print("Select FAR-SIDE player region (top of court), then press ENTER/SPACE.")
-    far = cv2.selectROI("Select Far-Side ROI", frame, showCrosshair=True)
-    cv2.destroyAllWindows()
+    print("  Attempting auto-detection of court corners...")
+    corners = _detect_court_corners(frame)
 
-    rois = {"near": list(near), "far": list(far)}
+    if corners is not None:
+        print("  Court auto-detected successfully.")
+
+    if corners is None:
+        print("  Auto-detection failed or rejected. Falling back to manual selection.")
+        corners = _manual_select_corners(frame)
+
+    rois = _corners_to_rois(corners)
 
     cache = {}
     if CACHE_PATH.exists():
@@ -39,11 +294,27 @@ def select_rois(video_path: str) -> dict:
     return rois
 
 
-def _roi_foreground_ratio(mask, roi):
+def _make_polygon_mask(shape, polygon):
+    """Create a binary mask from a list of [x,y] points."""
+    mask = np.zeros(shape[:2], dtype=np.uint8)
+    pts = np.array(polygon, dtype=np.int32)
+    cv2.fillPoly(mask, [pts], 255)
+    return mask
+
+
+def _roi_foreground_ratio(fg_mask, roi):
+    if isinstance(roi[0], (list, tuple)):
+        poly_mask = _make_polygon_mask(fg_mask.shape, roi)
+        area = cv2.countNonZero(poly_mask)
+        if area == 0:
+            return 0.0
+        masked = cv2.bitwise_and(fg_mask, poly_mask)
+        return float(cv2.countNonZero(masked)) / area
+    # Legacy rectangular fallback
     x, y, w, h = roi
     if w == 0 or h == 0:
         return 0.0
-    crop = mask[y:y+h, x:x+w]
+    crop = fg_mask[y:y+h, x:x+w]
     return float(np.count_nonzero(crop)) / (w * h)
 
 
@@ -110,6 +381,15 @@ def analyze_motion(video_path: str, segments: list[dict], rois: dict) -> list[di
 
 
 def _roi_frame_diff(gray, prev_gray, roi):
+    if isinstance(roi[0], (list, tuple)):
+        poly_mask = _make_polygon_mask(gray.shape, roi)
+        diff = cv2.absdiff(gray, prev_gray)
+        masked = cv2.bitwise_and(diff, diff, mask=poly_mask)
+        area = cv2.countNonZero(poly_mask)
+        if area == 0:
+            return 0.0
+        return float(np.sum(masked)) / area
+    # Legacy rectangular fallback
     x, y, w, h = roi
     if w == 0 or h == 0:
         return 0.0
