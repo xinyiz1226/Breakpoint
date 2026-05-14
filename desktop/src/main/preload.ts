@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
   getRecentProjects: () => ipcRenderer.invoke('get-recent-projects'),
   runAnalysis: (videoPath: string) => ipcRenderer.invoke('run-analysis', videoPath),
   cancelAnalysis: () => ipcRenderer.invoke('cancel-analysis'),
+  cancelExport: () => ipcRenderer.invoke('cancel-export'),
   loadReport: (videoPath: string) => ipcRenderer.invoke('load-report', videoPath),
   exportHighlights: (videoPath: string, segments: { start: number; end: number }[]) =>
     ipcRenderer.invoke('export-highlights', videoPath, segments),
@@ -24,5 +25,10 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_: unknown, data: ProgressEvent) => callback(data)
     ipcRenderer.on('analysis-progress', handler)
     return () => ipcRenderer.removeListener('analysis-progress', handler)
+  },
+  onExportProgress: (callback: (event: { time: number }) => void) => {
+    const handler = (_: unknown, data: { time: number }) => callback(data)
+    ipcRenderer.on('export-progress', handler)
+    return () => ipcRenderer.removeListener('export-progress', handler)
   },
 })

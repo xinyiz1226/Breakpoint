@@ -1,5 +1,6 @@
-import { spawn } from 'node:child_process'
+import { spawn, ChildProcess } from 'node:child_process'
 import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { unlink } from 'node:fs/promises'
 import path from 'node:path'
 
 interface ExportSegment {
@@ -8,6 +9,15 @@ interface ExportSegment {
 }
 
 export function setupFfmpegBridge() {
+  let activeProc: ChildProcess | null = null
+
+  ipcMain.handle('cancel-export', () => {
+    if (activeProc) {
+      activeProc.kill()
+      activeProc = null
+    }
+  })
+
   ipcMain.handle('export-highlights', async (event, videoPath: string, segments: ExportSegment[]) => {
     const win = BrowserWindow.fromWebContents(event.sender)
 
@@ -38,6 +48,7 @@ export function setupFfmpegBridge() {
 
     return new Promise<{ error?: string; cancelled?: boolean; outputPath?: string }>((resolve) => {
       const proc = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] })
+      activeProc = proc
 
       proc.stderr?.on('data', (data: Buffer) => {
         const line = data.toString()
@@ -48,9 +59,13 @@ export function setupFfmpegBridge() {
         }
       })
 
-      proc.on('close', (code) => {
+      proc.on('close', (code, signal) => {
+        activeProc = null
         if (code === 0) {
           resolve({ outputPath })
+        } else if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+          unlink(outputPath).catch(() => {})
+          resolve({ cancelled: true })
         } else {
           resolve({ error: `ffmpeg exited with code ${code}` })
         }

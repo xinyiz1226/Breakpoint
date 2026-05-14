@@ -1,9 +1,9 @@
 import { useAppState, Segment } from '../state/AppState'
 
 function scoreColor(score: number): string {
-  if (score > 2.3) return 'var(--color-terre)'
-  if (score > 1.7) return 'var(--color-green)'
-  return 'var(--color-gold)'
+  if (score > 2.3) return '#C75B2F'
+  if (score > 1.7) return '#5A8C6F'
+  return '#A0937D'
 }
 
 function formatTime(s: number): string {
@@ -39,15 +39,15 @@ export default function Timeline({ onSeek }: Props) {
         </span>
         <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--color-text-secondary)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--color-terre)', opacity: 0.7, display: 'inline-block' }} />
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: '#C75B2F', opacity: 0.7, display: 'inline-block' }} />
             High
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--color-green)', opacity: 0.7, display: 'inline-block' }} />
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: '#5A8C6F', opacity: 0.7, display: 'inline-block' }} />
             Mid
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--color-gold)', opacity: 0.7, display: 'inline-block' }} />
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: '#A0937D', opacity: 0.7, display: 'inline-block' }} />
             Low
           </span>
         </div>

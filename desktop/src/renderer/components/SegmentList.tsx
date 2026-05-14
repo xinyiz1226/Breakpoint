@@ -14,9 +14,9 @@ function formatTimePrecise(s: number): string {
 }
 
 function scoreColor(score: number): string {
-  if (score > 2.3) return 'var(--color-terre)'
-  if (score > 1.7) return 'var(--color-green)'
-  return 'var(--color-gold)'
+  if (score > 2.3) return '#C75B2F'
+  if (score > 1.7) return '#5A8C6F'
+  return '#A0937D'
 }
 
 interface Props {

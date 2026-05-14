@@ -23,16 +23,14 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: false,
     },
-    show: false,
   })
-
-  win.once('ready-to-show', () => win?.show())
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)

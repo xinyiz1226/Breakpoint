@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AppProvider, useAppState, applyAutoInclude } from './state/AppState'
 import WelcomeScreen from './components/WelcomeScreen'
 import VideoPlayer from './components/VideoPlayer'
@@ -87,6 +87,16 @@ function AppInner() {
     if (path) handleVideoSelected(path)
   }, [handleVideoSelected])
 
+  const [exportProgress, setExportProgress] = useState<number | null>(null)
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (exportMessage) {
+      const timer = setTimeout(() => setExportMessage(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [exportMessage])
+
   const handleExport = useCallback(async () => {
     if (!state.videoPath) return
     const activeSegments = state.segments
@@ -96,9 +106,23 @@ function AppInner() {
         end: s.endAdjusted ?? s.end,
       }))
     if (activeSegments.length === 0) return
+
+    const totalDuration = activeSegments.reduce((sum, s) => sum + (s.end - s.start), 0)
+    setExportProgress(0)
+    setExportMessage(null)
+
+    const cleanup = window.api.onExportProgress((event) => {
+      setExportProgress(Math.min(event.time / totalDuration, 1))
+    })
+
     const result = await window.api.exportHighlights(state.videoPath, activeSegments)
+    cleanup()
+    setExportProgress(null)
+
     if (result.error) {
-      alert(`Export failed: ${result.error}`)
+      setExportMessage(`Export failed: ${result.error}`)
+    } else if (!result.cancelled) {
+      setExportMessage('Export complete')
     }
   }, [state.videoPath, state.segments])
 
@@ -117,24 +141,29 @@ function AppInner() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        WebkitAppRegion: 'drag' as any,
       }}>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--color-terre)', fontWeight: 600 }}>
           Breakpoint
         </span>
-        <span>{state.videoPath.split(/[\\/]/).pop()}</span>
-        <button
-          onClick={() => dispatch({ type: 'CLOSE_VIDEO' })}
-          style={{ fontSize: 12, color: 'var(--color-text-secondary)', padding: '2px 8px' }}
-        >
-          Close
-        </button>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' as any }}>
+          <button onClick={handleOpenNewVideo} style={{ fontSize: 12, color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
+            Open Video
+          </button>
+          <button onClick={() => startAnalysis(state.videoPath!)} style={{ fontSize: 12, color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
+            Re-analyze
+          </button>
+        </div>
       </div>
 
       {state.analysisStatus === 'done' && (
         <Toolbar
-          onOpenVideo={handleOpenNewVideo}
-          onReanalyze={() => startAnalysis(state.videoPath!)}
           onExport={handleExport}
+          onCancelExport={() => window.api.cancelExport()}
+          filename={state.videoPath.split(/[\\/]/).pop() ?? ''}
+          exportProgress={exportProgress}
+          exportMessage={exportMessage}
         />
       )}
 
