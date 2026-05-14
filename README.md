@@ -1,0 +1,54 @@
+# Breakpoint
+
+Automatically extract highlight rallies from broadcast-angle tennis match footage.
+
+Breakpoint analyzes full-length tennis videos using audio-based hit detection and computer vision to identify, rank, and export the best rallies — no manual scrubbing required.
+
+## Features
+
+- **Hit Detection** — Detects ball strikes via audio onset analysis with adaptive thresholds
+- **Smart Segmentation** — Splits the match into individual rallies using silence gaps, with density trimming and duration filtering
+- **Vision Ranking** — Scores each rally by player motion intensity (large court coverage, diving saves, etc.)
+- **Visual Timeline Editor** — Browse, preview, and adjust rally boundaries in a desktop GUI
+- **One-Click Export** — Export selected highlights as a single compiled video via ffmpeg
+
+## Desktop App
+
+Breakpoint ships as a standalone Windows desktop application. No Python, ffmpeg, or other dependencies required — everything is bundled in the installer.
+
+### Download
+
+Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakpoint/releases) page:
+
+- **Breakpoint Setup x.x.x.exe** — NSIS installer (recommended)
+- **Breakpoint x.x.x.msi** — MSI installer
+
+### Usage
+
+1. **Open a video** — Launch the app and click "Open Video" or select a recent project
+2. **Analyze** — The pipeline runs automatically: audio extraction → hit detection → segmentation → vision ranking
+3. **Review** — Browse the ranked segment list, click any segment to preview it in the video player
+4. **Edit** — Drag the trim handles to adjust start/end times, toggle segments on/off with checkboxes
+5. **Export** — Click "Export Highlights" to compile the selected segments into a single video
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Analysis engine | Python 3.12, librosa, OpenCV, NumPy, SciPy |
+| Desktop app | Electron, React, TypeScript, Vite |
+| Video processing | ffmpeg |
+| Packaging | PyInstaller (engine), electron-builder (installer) |
+
+## Project Structure
+
+```
+phase1/          Audio analysis pipeline (hit detection, segmentation, ranking)
+phase2/          Vision analysis (player motion scoring)
+desktop/         Electron + React desktop application
+web/             Legacy Flask web UI
+```
+
+## License
+
+MIT
