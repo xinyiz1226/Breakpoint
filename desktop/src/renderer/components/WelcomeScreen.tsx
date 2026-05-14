@@ -24,8 +24,8 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
       justifyContent: 'center',
       height: '100vh',
       gap: 32,
-      WebkitAppRegion: 'drag' as any,
-    }}>
+      WebkitAppRegion: 'drag',
+    } as React.CSSProperties}>
       <h1 style={{
         fontFamily: 'var(--font-display)',
         fontSize: 48,
@@ -50,8 +50,8 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
           fontSize: 15,
           fontWeight: 600,
           transition: 'background 0.15s',
-          WebkitAppRegion: 'no-drag' as any,
-        }}
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-terre-dark)'}
         onMouseLeave={(e) => e.currentTarget.style.background = 'var(--color-terre)'}
       >
@@ -59,7 +59,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
       </button>
 
       {recent.length > 0 && (
-        <div style={{ marginTop: 16, textAlign: 'center', WebkitAppRegion: 'no-drag' as any }}>
+        <div style={{ marginTop: 16, textAlign: 'center', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <p style={{
             fontSize: 12,
             color: 'var(--color-text-secondary)',

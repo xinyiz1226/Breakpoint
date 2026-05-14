@@ -13,3 +13,5 @@ desktop/node_modules/
 desktop/dist/
 desktop/dist-electron/
 desktop/release/
+dist-engine/
+build-engine/

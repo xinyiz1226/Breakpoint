@@ -6,9 +6,11 @@ directories:
 win:
   target: nsis
   icon: build/icon.ico
+  signAndEditExecutable: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: true
 extraResources:
   - from: ../dist-engine/
     to: engine
@@ -17,3 +19,4 @@ extraResources:
 files:
   - dist/**/*
   - dist-electron/**/*
+  - "!node_modules/**/*"

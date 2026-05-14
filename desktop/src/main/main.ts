@@ -8,7 +8,7 @@ const store = new Store<{ recentProjects: string[] }>({
   defaults: { recentProjects: [] },
 })
 
-process.env.DIST_ELECTRON = path.join(__dirname)
+process.env.DIST_ELECTRON = path.join(__dirname, '..')
 process.env.DIST = path.join(process.env.DIST_ELECTRON, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged
   ? process.env.DIST

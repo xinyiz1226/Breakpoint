@@ -141,13 +141,13 @@ function AppInner() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        WebkitAppRegion: 'drag' as any,
-      }}>
+        WebkitAppRegion: 'drag',
+      } as React.CSSProperties}>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--color-terre)', fontWeight: 600 }}>
           Breakpoint
         </span>
         <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' as any }}>
+        <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button onClick={handleOpenNewVideo} style={{ fontSize: 12, color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
             Open Video
           </button>

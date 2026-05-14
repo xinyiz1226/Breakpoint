@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, createRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppState, Segment } from '../state/AppState'
 
 function formatTime(s: number): string {

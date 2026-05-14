@@ -1,7 +1,14 @@
 import { spawn, ChildProcess } from 'node:child_process'
-import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, BrowserWindow } from 'electron'
 import { unlink } from 'node:fs/promises'
 import path from 'node:path'
+
+function getFfmpegPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'engine', 'ffmpeg', 'ffmpeg.exe')
+  }
+  return 'ffmpeg'
+}
 
 interface ExportSegment {
   start: number
@@ -44,7 +51,8 @@ export function setupFfmpegBridge() {
 
     const filterStr = filterParts.join('') + `concat=n=${sorted.length}:v=1:a=1[outv][outa]`
 
-    const cmd = ['ffmpeg', '-y', ...inputs, '-filter_complex', filterStr, '-map', '[outv]', '-map', '[outa]', outputPath]
+    const ffmpeg = getFfmpegPath()
+    const cmd = [ffmpeg, '-y', ...inputs, '-filter_complex', filterStr, '-map', '[outv]', '-map', '[outa]', outputPath]
 
     return new Promise<{ error?: string; cancelled?: boolean; outputPath?: string }>((resolve) => {
       const proc = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] })

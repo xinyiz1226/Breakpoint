@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "package": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
