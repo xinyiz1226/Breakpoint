@@ -4,7 +4,9 @@ directories:
   output: release
   buildResources: build
 win:
-  target: nsis
+  target:
+    - nsis
+    - msi
   icon: build/icon.ico
   signAndEditExecutable: false
 nsis:
