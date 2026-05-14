@@ -1,0 +1,19 @@
+appId: com.breakpoint.app
+productName: Breakpoint
+directories:
+  output: release
+  buildResources: build
+win:
+  target: nsis
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+extraResources:
+  - from: ../dist-engine/
+    to: engine
+    filter:
+      - "**/*"
+files:
+  - dist/**/*
+  - dist-electron/**/*

@@ -9,6 +9,18 @@ from phase1.segment_points import segment_points
 from phase1.rank_points import rank_points
 
 
+def _emit(msg: dict, json_progress: bool):
+    if json_progress:
+        import sys
+        print(json.dumps(msg, ensure_ascii=False), flush=True)
+        sys.stdout.flush()
+
+
+def _log(text: str, json_progress: bool):
+    if not json_progress:
+        print(text)
+
+
 def run_analysis(
     video_path: str,
     output_dir: str | None = None,
@@ -16,6 +28,7 @@ def run_analysis(
     buffer: float = 1.5,
     vision: bool = True,
     vision_keep: float = 0.7,
+    json_progress: bool = False,
 ) -> list[dict]:
     video = Path(video_path)
     if output_dir is None:
@@ -23,41 +36,55 @@ def run_analysis(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    print(f"[1/4] Extracting audio from {video.name}...")
+    total_steps = 4
+
+    _emit({"type": "step", "step": 1, "total": total_steps, "label": "Extracting audio"}, json_progress)
+    _log(f"[1/4] Extracting audio from {video.name}...", json_progress)
     t0 = time.time()
     audio_path = extract_audio(video_path, str(out / "audio.wav"))
-    print(f"  Done in {time.time() - t0:.1f}s")
+    elapsed = time.time() - t0
+    _emit({"type": "step_done", "step": 1, "elapsed": round(elapsed, 1)}, json_progress)
+    _log(f"  Done in {elapsed:.1f}s", json_progress)
 
-    print("[2/4] Detecting hits...")
+    _emit({"type": "step", "step": 2, "total": total_steps, "label": "Detecting hits"}, json_progress)
+    _log("[2/4] Detecting hits...", json_progress)
     t0 = time.time()
     hit_times, hit_energies, sr = detect_hits(audio_path)
-    print(f"  Found {len(hit_times)} hits in {time.time() - t0:.1f}s")
+    elapsed = time.time() - t0
+    _emit({"type": "step_done", "step": 2, "elapsed": round(elapsed, 1), "detail": {"hit_count": len(hit_times)}}, json_progress)
+    _log(f"  Found {len(hit_times)} hits in {elapsed:.1f}s", json_progress)
 
-    print("[3/4] Segmenting points...")
+    _emit({"type": "step", "step": 3, "total": total_steps, "label": "Segmenting points"}, json_progress)
+    _log("[3/4] Segmenting points...", json_progress)
     points = segment_points(hit_times, hit_energies, silence_gap=silence_gap, buffer=buffer)
-    print(f"  Found {len(points)} points/rallies")
+    _emit({"type": "step_done", "step": 3, "detail": {"point_count": len(points)}}, json_progress)
+    _log(f"  Found {len(points)} points/rallies", json_progress)
 
     vision_data = None
     if vision:
         from phase2.player_motion import select_rois, analyze_motion
-        print("[3.5/4] Analyzing player motion (vision)...")
+        _emit({"type": "step", "step": 3.5, "total": total_steps, "label": "Analyzing player motion"}, json_progress)
+        _log("[3.5/4] Analyzing player motion (vision)...", json_progress)
         t0 = time.time()
         rois = select_rois(video_path)
         vision_data = analyze_motion(video_path, points, rois)
-        print(f"  Done in {time.time() - t0:.1f}s")
+        elapsed = time.time() - t0
+        _emit({"type": "step_done", "step": 3.5, "elapsed": round(elapsed, 1)}, json_progress)
+        _log(f"  Done in {elapsed:.1f}s", json_progress)
 
-    print("[4/4] Ranking points...")
+    _emit({"type": "step", "step": 4, "total": total_steps, "label": "Ranking points"}, json_progress)
+    _log("[4/4] Ranking points...", json_progress)
     ranked = rank_points(points, vision_data=vision_data)
     if vision_data and len(ranked) > 1:
         keep_count = max(1, int(len(ranked) * vision_keep))
         removed = len(ranked) - keep_count
         ranked = ranked[:keep_count]
-        print(f"  Vision filter: kept top {keep_count}, removed bottom {removed}")
+        _log(f"  Vision filter: kept top {keep_count}, removed bottom {removed}", json_progress)
 
     for i, p in enumerate(ranked):
         dur = p["end"] - p["start"]
         hits = p["features"]["hit_count"]
-        print(f"  #{i+1}: {p['start']:.1f}s-{p['end']:.1f}s ({dur:.1f}s, {hits} hits, score={p['score']:.3f})")
+        _log(f"  #{i+1}: {p['start']:.1f}s-{p['end']:.1f}s ({dur:.1f}s, {hits} hits, score={p['score']:.3f})", json_progress)
 
     report_path = str(out / "full_report.json")
     report_data = [{
@@ -68,8 +95,10 @@ def run_analysis(
         "features": p["features"],
     } for i, p in enumerate(ranked)]
     Path(report_path).write_text(json.dumps(report_data, indent=2, ensure_ascii=False))
-    print(f"\nTimeline saved to {report_path}")
-    print(f"Total points: {len(ranked)}")
+    _log(f"\nTimeline saved to {report_path}", json_progress)
+    _log(f"Total points: {len(ranked)}", json_progress)
+
+    _emit({"type": "complete", "report_path": report_path, "segment_count": len(ranked)}, json_progress)
 
     return ranked
 
@@ -82,6 +111,7 @@ if __name__ == "__main__":
     parser.add_argument("--buffer", type=float, default=1.5, help="Buffer before/after each point (seconds)")
     parser.add_argument("--no-vision", action="store_true", help="Disable vision-based player motion analysis")
     parser.add_argument("--vision-keep", type=float, default=0.7, help="Fraction of segments to keep after vision ranking (0-1, default 0.7)")
+    parser.add_argument("--json-progress", action="store_true", help="Output JSON-line progress messages to stdout")
     parser.add_argument("--reference", help="Hand-edited reference video for comparison")
     args = parser.parse_args()
 
@@ -92,6 +122,7 @@ if __name__ == "__main__":
         buffer=args.buffer,
         vision=not args.no_vision,
         vision_keep=args.vision_keep,
+        json_progress=args.json_progress,
     )
 
     if args.reference:

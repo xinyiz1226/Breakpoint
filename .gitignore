@@ -7,3 +7,9 @@ __pycache__/
 *.MP4
 *.mp4
 tests/
+
+# Desktop app
+desktop/node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/release/

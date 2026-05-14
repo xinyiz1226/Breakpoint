@@ -182,7 +182,18 @@
       "Bash(py -3.12 pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503154223_0534_D.MP4\" -o output_0534 --no-compile --reference \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\1777801854000.MP4\")",
       "Bash(py -3.12 pipeline.py \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\DJI_20260503150415_0533_D.MP4\" -o output_0533 --no-compile --reference \"D:\\\\Pictures\\\\网球\\\\2026.5.3\\\\1777803838000.MP4\")",
       "Bash(git lfs *)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(py -3.12 pipeline.py \"../tests/DJI_20260503142617_0532_D.MP4\" -o \"../output_0532\" --reference \"../tests/DJI_20260503142617_0532_D_highlight.MP4\")",
+      "Bash(py -3.12 pipeline.py \"../tests/DJI_20260503150415_0533_D.MP4\" -o \"../output_0533\" --reference \"../tests/DJI_20260503150415_0533_D_highlight.MP4\")",
+      "Bash(py -3.12 pipeline.py \"../tests/DJI_20260503154223_0534_D.MP4\" -o \"../output_0534\" --reference \"../tests/DJI_20260503154223_0534_D_highlight.MP4\")",
+      "Bash(py -3.12 pipeline.py \"../tests/DJI_20260505141553_0535_D.MP4\" -o \"../output_0535\" --reference \"../tests/DJI_20260505141553_0535_D_highlight.MP4\")",
+      "Bash(py -3.12 pipeline.py \"../tests/DJI_20260505145356_0536_D.MP4\" -o \"../output_0536\" --reference \"../tests/DJI_20260505145356_0536_D_highlight.MP4\")",
+      "Bash(py -3.12 pipeline.py \"../tests/DJI_20260505153140_0537_D.MP4\" -o \"../output_0537\" --reference \"../tests/DJI_20260505153140_0537_D_highlight.MP4\")",
+      "Bash(py -3.12 param_sweep.py)",
+      "Bash(py -3.12 param_sweep_fine.py)",
+      "Bash(py -3.12 run_tests.py)",
+      "Bash(python run_tests.py -j 2)",
+      "Bash(python *)"
     ],
     "additionalDirectories": [
       "\\tmp"
