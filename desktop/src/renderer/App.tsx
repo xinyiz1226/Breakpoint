@@ -13,6 +13,15 @@ function AppInner() {
   const [seekCounter, setSeekCounter] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [autoPlay, setAutoPlay] = useState(false)
+  const [resourceError, setResourceError] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.api.checkResources().then((res) => {
+      if (!res.ok) {
+        setResourceError(`Installer missing bundled resources: ${res.missing.join(', ')}`)
+      }
+    })
+  }, [])
 
   const doSeek = useCallback((t: number) => {
     setAutoPlay(false)
@@ -128,6 +137,17 @@ function AppInner() {
       setExportMessage('Export complete')
     }
   }, [state.videoPath, state.segments])
+
+  if (resourceError) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+        <div style={{ textAlign: 'center', maxWidth: 480 }}>
+          <h2 style={{ color: 'var(--color-terre)', fontFamily: 'var(--font-display)', marginBottom: 16 }}>Resource Error</h2>
+          <p style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>{resourceError}</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!state.videoPath) {
     return <WelcomeScreen onVideoSelected={handleVideoSelected} />

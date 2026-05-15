@@ -1,6 +1,6 @@
 {
   "name": "breakpoint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tennis highlight extraction desktop app",
   "main": "dist-electron/main/main.js",
   "scripts": {

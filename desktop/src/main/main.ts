@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import path from 'node:path'
+import fs from 'node:fs'
 import Store from 'electron-store'
 import { setupPythonBridge } from './pythonBridge'
 import { setupFfmpegBridge } from './ffmpegBridge'
@@ -59,6 +60,16 @@ ipcMain.handle('open-file-dialog', async (event) => {
 
 ipcMain.handle('get-recent-projects', () => {
   return store.get('recentProjects')
+})
+
+ipcMain.handle('check-resources', () => {
+  if (!app.isPackaged) return { ok: true, missing: [] }
+  const checks = [
+    { label: 'engine (TennisHighlightAnalysis.exe)', path: path.join(process.resourcesPath, 'engine', 'TennisHighlightAnalysis', 'TennisHighlightAnalysis.exe') },
+    { label: 'ffmpeg (ffmpeg.exe)', path: path.join(process.resourcesPath, 'engine', 'ffmpeg', 'ffmpeg.exe') },
+  ]
+  const missing = checks.filter((c) => !fs.existsSync(c.path)).map((c) => c.label)
+  return { ok: missing.length === 0, missing }
 })
 
 app.whenReady().then(() => {

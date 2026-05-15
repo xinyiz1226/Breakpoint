@@ -25,10 +25,10 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 ### Usage
 
 1. **Open a video** — Launch the app and click "Open Video" or select a recent project
-2. **Analyze** — The pipeline runs automatically: audio extraction → hit detection → segmentation → vision ranking
+2. **Analyze** — The pipeline runs automatically: audio extraction → hit detection → segmentation → vision ranking. This produces a timeline (`full_report.json`) of ranked rally segments — no video files are generated at this stage.
 3. **Review** — Browse the ranked segment list, click any segment to preview it in the video player
 4. **Edit** — Drag the trim handles to adjust start/end times, toggle segments on/off with checkboxes
-5. **Export** — Click "Export Highlights" to compile the selected segments into a single video
+5. **Export** — Click "Export Highlights" to compile the selected segments into a single highlight `.mp4` video
 
 ## Tech Stack
 
@@ -42,9 +42,21 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 ## Project Structure
 
 ```
-engine/          Analysis engine (audio, vision, segmentation, ranking, export)
-tools/           Development utilities (comparison, parameter sweep, test runner)
+engine/          Analysis pipeline (audio, vision, segmentation, ranking, export)
+├── audio/       Audio extraction and hit detection (librosa)
+├── vision/      Player motion analysis (OpenCV)
+├── export/      Clip extraction and highlight compilation (ffmpeg)
+├── pipeline.py  Main orchestrator
+├── segmentation.py
+├── ranking.py
+└── ffutil.py
+
 desktop/         Electron + React desktop application
+├── src/main/    Electron main process (Python bridge, ffmpeg export)
+├── src/renderer/ React UI (video player, timeline, segment list)
+└── scripts/     Build and packaging scripts
+
+tools/           Development utilities (comparison, parameter sweep, tests)
 web/             Legacy Flask web UI
 ```
 
