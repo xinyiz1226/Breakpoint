@@ -20,16 +20,16 @@ VIDEOS = [
 
 
 def _check_roi_cache():
-    cache_path = Path(__file__).resolve().parent.parent / "phase2" / "rois_cache.json"
+    cache_path = Path(__file__).resolve().parent.parent / "engine" / "vision" / "rois_cache.json"
     if not cache_path.exists():
         return set()
     cache = json.loads(cache_path.read_text())
     return set(cache.keys())
 
 
-def run_one(tag, stem, output_root, vision):
-    from phase1.analyze import run_analysis
-    from phase1.compare import compare_with_reference
+def run_one(tag, stem, output_root, vision, vision_keep):
+    from engine.pipeline import run_analysis
+    from tools.compare import compare_with_reference
 
     vid_path = str(TESTS_DIR / f"{stem}.MP4")
     ref_path = str(TESTS_DIR / f"{stem}_highlight.MP4")
@@ -39,6 +39,7 @@ def run_one(tag, stem, output_root, vision):
         vid_path,
         output_dir=out_dir,
         vision=vision,
+        vision_keep=vision_keep,
     )
 
     result = compare_with_reference(vid_path, ref_path, pipeline_segments=ranked)
@@ -50,9 +51,11 @@ def main():
     parser.add_argument("--no-vision", action="store_true", help="Disable vision analysis")
     parser.add_argument("-j", "--jobs", type=int, default=4, help="Max parallel workers")
     parser.add_argument("-o", "--output", default=None, help="Output root directory")
+    parser.add_argument("--vision-keep", type=float, default=0.7, help="Fraction of segments to keep after vision ranking (0-1)")
     args = parser.parse_args()
 
     vision = not args.no_vision
+    vision_keep = args.vision_keep
     output_root = Path(args.output) if args.output else Path(__file__).resolve().parent.parent
 
     if vision:
@@ -60,7 +63,7 @@ def main():
         uncached = [(tag, stem) for tag, stem in VIDEOS if f"{stem}.MP4" not in cached]
         if uncached:
             print(f"{len(uncached)} videos need ROI calibration (interactive):\n")
-            from phase2.player_motion import select_rois
+            from engine.vision.player_motion import select_rois
             for tag, stem in uncached:
                 vid_path = str(TESTS_DIR / f"{stem}.MP4")
                 print(f"  [{tag}] Calibrating ROIs for {stem}...")
@@ -73,7 +76,7 @@ def main():
     futures = {}
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
         for tag, stem in VIDEOS:
-            fut = pool.submit(run_one, tag, stem, output_root, vision)
+            fut = pool.submit(run_one, tag, stem, output_root, vision, vision_keep)
             futures[fut] = tag
 
         results = {}

@@ -2,8 +2,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from phase1.analyze import run_analysis
-from phase1.compile import compile_highlights
+from engine.pipeline import run_analysis
+from engine.export.compile import compile_highlights
 
 
 def main():
@@ -41,7 +41,7 @@ def main():
         compile_highlights(args.video, timeline_path)
 
     if args.reference:
-        from phase1.compare import compare_with_reference, print_report
+        from tools.compare import compare_with_reference, print_report
         print("\n[Compare] Comparing with reference video...")
         result = compare_with_reference(args.video, args.reference, pipeline_segments=ranked)
         print_report(result)

@@ -103,7 +103,7 @@ def _split_segment(hit_times, start_idx, end_idx, max_duration, buffer, out):
 
 if __name__ == "__main__":
     import json, sys
-    from detect_hits import detect_hits
+    from engine.audio.detect_hits import detect_hits
     if len(sys.argv) < 2:
         print("Usage: python segment_points.py <audio_path>")
         sys.exit(1)

@@ -3,16 +3,16 @@ import json
 import time
 from pathlib import Path
 
-from phase1.extract_audio import extract_audio
-from phase1.detect_hits import detect_hits
-from phase1.segment_points import segment_points
-from phase1.rank_points import rank_points
+from engine.audio.extract import extract_audio
+from engine.audio.detect_hits import detect_hits
+from engine.segmentation import segment_points
+from engine.ranking import rank_points
 
 
 def _emit(msg: dict, json_progress: bool):
     if json_progress:
         import sys
-        print(json.dumps(msg, ensure_ascii=False), flush=True)
+        print(json.dumps(msg), flush=True)
         sys.stdout.flush()
 
 
@@ -62,7 +62,7 @@ def run_analysis(
 
     vision_data = None
     if vision:
-        from phase2.player_motion import select_rois, analyze_motion
+        from engine.vision.player_motion import select_rois, analyze_motion
         _emit({"type": "step", "step": 3.5, "total": total_steps, "label": "Analyzing player motion"}, json_progress)
         _log("[3.5/4] Analyzing player motion (vision)...", json_progress)
         t0 = time.time()
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     )
 
     if args.reference:
-        from phase1.compare import compare_with_reference, print_report
+        from tools.compare import compare_with_reference, print_report
         print("\n[Compare] Comparing with reference video...")
         result = compare_with_reference(args.video, args.reference, pipeline_segments=ranked)
         print_report(result)

@@ -47,12 +47,15 @@ function AppInner() {
         })
       } else if (event.type === 'complete') {
         cleanup()
-        window.api.loadReport(videoPath).then((segments) => {
+        const reportSource = event.report_path ?? videoPath
+        window.api.loadReport(reportSource).then((segments) => {
           if (segments) {
             dispatch({
               type: 'ANALYSIS_DONE',
               segments: applyAutoInclude(segments.map((s) => ({ ...s, included: false }))),
             })
+          } else {
+            dispatch({ type: 'ANALYSIS_ERROR', message: 'Report file not found' })
           }
         })
       } else if (event.type === 'error') {

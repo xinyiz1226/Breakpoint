@@ -42,8 +42,8 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 ## Project Structure
 
 ```
-phase1/          Audio analysis pipeline (hit detection, segmentation, ranking)
-phase2/          Vision analysis (player motion scoring)
+engine/          Analysis engine (audio, vision, segmentation, ranking, export)
+tools/           Development utilities (comparison, parameter sweep, test runner)
 desktop/         Electron + React desktop application
 web/             Legacy Flask web UI
 ```

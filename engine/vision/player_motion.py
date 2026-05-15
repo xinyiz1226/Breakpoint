@@ -4,7 +4,8 @@ import numpy as np
 from pathlib import Path
 
 
-CACHE_PATH = Path(__file__).resolve().parent / "rois_cache.json"
+import tempfile
+CACHE_PATH = Path(tempfile.gettempdir()) / "breakpoint_rois_cache.json"
 
 
 def _detect_court_corners(frame):
@@ -483,9 +484,9 @@ def filter_hits_by_vision(
 
 if __name__ == "__main__":
     import sys
-    from phase1.extract_audio import extract_audio
-    from phase1.detect_hits import detect_hits
-    from phase1.segment_points import segment_points
+    from engine.audio.extract import extract_audio
+    from engine.audio.detect_hits import detect_hits
+    from engine.segmentation import segment_points
 
     if len(sys.argv) < 2:
         print("Usage: python player_motion.py <video_path> [--filter-debug]")

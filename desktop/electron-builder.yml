@@ -12,7 +12,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  deleteAppDataOnUninstall: true
+  deleteAppDataOnUninstall: false
 extraResources:
   - from: ../dist-engine/
     to: engine

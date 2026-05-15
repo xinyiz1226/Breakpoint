@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from phase1.ffutil import run_ffmpeg
+from engine.ffutil import run_ffmpeg
 
 
 def extract_audio(video_path: str, output_path: str | None = None, sr: int = 22050) -> str:

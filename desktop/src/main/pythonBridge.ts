@@ -7,10 +7,10 @@ let analysisProcess: ChildProcess | null = null
 
 function getEngineCommand(): { cmd: string; args: string[] } {
   if (app.isPackaged) {
-    const enginePath = path.join(process.resourcesPath, 'engine', 'TennisHighlightAnalysis.exe')
+    const enginePath = path.join(process.resourcesPath, 'engine', 'TennisHighlightAnalysis', 'TennisHighlightAnalysis.exe')
     return { cmd: enginePath, args: [] }
   }
-  return { cmd: 'python', args: ['-m', 'phase1.analyze'] }
+  return { cmd: 'python', args: ['-m', 'engine.pipeline'] }
 }
 
 function getProjectRoot(): string {
@@ -27,22 +27,34 @@ export function setupPythonBridge() {
     }
 
     const { cmd, args } = getEngineCommand()
-    const fullArgs = [...args, videoPath, '--json-progress', '--no-vision']
+    const fullArgs = [...args, videoPath, '--json-progress', '--no-compile']
     const cwd = getProjectRoot()
+
+    const env = { ...process.env }
+    if (app.isPackaged) {
+      const ffmpegDir = path.join(process.resourcesPath, 'engine', 'ffmpeg')
+      env.PATH = ffmpegDir + path.delimiter + (env.PATH ?? '')
+    }
 
     return new Promise<{ error?: string }>((resolve) => {
       analysisProcess = spawn(cmd, fullArgs, {
         cwd,
+        env,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
 
       const win = BrowserWindow.fromWebContents(event.sender)
+      let stdoutBuf = ''
 
       analysisProcess.stdout?.on('data', (data: Buffer) => {
-        const lines = data.toString().split('\n').filter(Boolean)
-        for (const line of lines) {
+        stdoutBuf += data.toString()
+        const parts = stdoutBuf.split('\n')
+        stdoutBuf = parts.pop()!
+        for (const line of parts) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
           try {
-            const msg = JSON.parse(line)
+            const msg = JSON.parse(trimmed)
             win?.webContents.send('analysis-progress', msg)
             if (msg.type === 'complete') {
               resolve({})
@@ -57,11 +69,24 @@ export function setupPythonBridge() {
       })
 
       analysisProcess.stderr?.on('data', (data: Buffer) => {
-        // stderr from Python — log but don't treat as fatal
-        console.error('[python]', data.toString())
+        const text = data.toString()
+        console.error('[python]', text)
+        win?.webContents.send('analysis-progress', { type: 'stderr', message: text })
       })
 
       analysisProcess.on('close', (code) => {
+        // Process remaining buffered output
+        if (stdoutBuf.trim()) {
+          try {
+            const msg = JSON.parse(stdoutBuf.trim())
+            win?.webContents.send('analysis-progress', msg)
+            if (msg.type === 'complete') {
+              analysisProcess = null
+              resolve({})
+              return
+            }
+          } catch { /* ignore */ }
+        }
         analysisProcess = null
         if (code !== 0) {
           resolve({ error: `Process exited with code ${code}` })
@@ -82,9 +107,13 @@ export function setupPythonBridge() {
     }
   })
 
-  ipcMain.handle('load-report', async (_event, videoPath: string) => {
-    const stem = path.basename(videoPath, path.extname(videoPath))
-    const dir = path.dirname(videoPath)
+  ipcMain.handle('load-report', async (_event, reportOrVideoPath: string) => {
+    // Accept either a direct report path or a video path
+    if (reportOrVideoPath.endsWith('.json') && fs.existsSync(reportOrVideoPath)) {
+      return JSON.parse(fs.readFileSync(reportOrVideoPath, 'utf-8'))
+    }
+    const stem = path.basename(reportOrVideoPath, path.extname(reportOrVideoPath))
+    const dir = path.dirname(reportOrVideoPath)
     const reportPath = path.join(dir, `output_${stem}`, 'full_report.json')
     if (fs.existsSync(reportPath)) {
       return JSON.parse(fs.readFileSync(reportPath, 'utf-8'))

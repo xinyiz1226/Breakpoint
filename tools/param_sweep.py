@@ -12,10 +12,10 @@ from pathlib import Path
 import numpy as np
 import librosa
 
-from phase1.extract_audio import extract_audio
-from phase1.detect_hits import detect_hits
-from phase1.segment_points import segment_points
-from phase1.rank_points import rank_points
+from engine.audio.extract import extract_audio
+from engine.audio.detect_hits import detect_hits
+from engine.segmentation import segment_points
+from engine.ranking import rank_points
 
 # ---------------------------------------------------------------------------
 TESTS_DIR = Path(__file__).resolve().parent.parent / "tests"
