@@ -20,7 +20,6 @@ Breakpoint ships as a standalone Windows desktop application. No Python, ffmpeg,
 
 Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakpoint/releases) page:
 
-- **Breakpoint Setup x.x.x.exe** — NSIS installer (recommended)
 - **Breakpoint x.x.x.msi** — MSI installer
 
 ### Usage
