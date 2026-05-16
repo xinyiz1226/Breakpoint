@@ -46,6 +46,23 @@ export default function ProgressOverlay() {
               transition: 'width 0.3s ease',
             }} />
           </div>
+          {step.subCurrent != null && step.subTotal != null && (
+            <div style={{
+              width: 240,
+              height: 2,
+              background: 'var(--color-border)',
+              borderRadius: 1,
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                width: `${(step.subCurrent / step.subTotal) * 100}%`,
+                height: '100%',
+                background: 'var(--color-terre)',
+                opacity: 0.5,
+                transition: 'width 0.15s ease',
+              }} />
+            </div>
+          )}
           <p style={{
             fontSize: 12,
             color: 'var(--color-text-secondary)',
@@ -53,6 +70,9 @@ export default function ProgressOverlay() {
           }}>
             Step {Math.ceil(step.step)} / {step.total}
             {step.elapsed != null && ` — ${step.elapsed.toFixed(1)}s`}
+            {step.subCurrent != null && step.subTotal != null && (
+              <> — Segment {step.subCurrent} / {step.subTotal}</>
+            )}
           </p>
         </>
       )}

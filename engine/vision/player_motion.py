@@ -324,7 +324,7 @@ def _scale_roi(roi, scale):
     return [[int(x * scale), int(y * scale)] for x, y in roi]
 
 
-def analyze_motion(video_path: str, segments: list[dict], rois: dict, target_height: int = 540) -> list[dict]:
+def analyze_motion(video_path: str, segments: list[dict], rois: dict, target_height: int = 540, progress_callback=None) -> list[dict]:
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
@@ -395,6 +395,8 @@ def analyze_motion(video_path: str, segments: list[dict], rois: dict, target_hei
 
         if (seg_idx + 1) % 10 == 0 or seg_idx == len(segments) - 1:
             print(f"  Motion analysis: {seg_idx + 1}/{len(segments)} segments")
+        if progress_callback:
+            progress_callback(seg_idx + 1, len(segments))
 
     cap.release()
     return results

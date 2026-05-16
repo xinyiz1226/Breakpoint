@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 export interface ProgressEvent {
-  type: 'step' | 'step_done' | 'complete' | 'error'
+  type: 'step' | 'step_done' | 'complete' | 'error' | 'progress' | 'stderr'
   step?: number
   total?: number
   label?: string
@@ -10,6 +10,8 @@ export interface ProgressEvent {
   report_path?: string
   segment_count?: number
   message?: string
+  current?: number
+  sub_total?: number
 }
 
 contextBridge.exposeInMainWorld('api', {

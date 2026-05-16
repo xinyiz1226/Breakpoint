@@ -54,6 +54,8 @@ function AppInner() {
             elapsed: event.elapsed,
           },
         })
+      } else if (event.type === 'progress') {
+        dispatch({ type: 'ANALYSIS_SUB_PROGRESS', current: event.current!, total: event.sub_total! })
       } else if (event.type === 'complete') {
         cleanup()
         const reportSource = event.report_path ?? videoPath

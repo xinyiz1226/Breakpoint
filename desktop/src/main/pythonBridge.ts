@@ -27,7 +27,7 @@ export function setupPythonBridge() {
     }
 
     const { cmd, args } = getEngineCommand()
-    const fullArgs = [...args, videoPath, '--json-progress', '--no-compile']
+    const fullArgs = [...args, videoPath, '--json-progress']
     const cwd = getProjectRoot()
 
     const env = { ...process.env }
@@ -45,6 +45,7 @@ export function setupPythonBridge() {
 
       const win = BrowserWindow.fromWebContents(event.sender)
       let stdoutBuf = ''
+      let stderrBuf = ''
 
       analysisProcess.stdout?.on('data', (data: Buffer) => {
         stdoutBuf += data.toString()
@@ -70,6 +71,7 @@ export function setupPythonBridge() {
 
       analysisProcess.stderr?.on('data', (data: Buffer) => {
         const text = data.toString()
+        stderrBuf += text
         console.error('[python]', text)
         win?.webContents.send('analysis-progress', { type: 'stderr', message: text })
       })
@@ -89,7 +91,8 @@ export function setupPythonBridge() {
         }
         analysisProcess = null
         if (code !== 0) {
-          resolve({ error: `Process exited with code ${code}` })
+          const detail = stderrBuf.trim().split('\n').pop() || ''
+          resolve({ error: detail || `Process exited with code ${code}` })
         }
       })
 

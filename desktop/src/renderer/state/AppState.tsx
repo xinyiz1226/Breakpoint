@@ -18,6 +18,8 @@ interface ProgressStep {
   total: number
   label: string
   elapsed?: number
+  subCurrent?: number
+  subTotal?: number
 }
 
 interface AppState {
@@ -35,6 +37,7 @@ type Action =
   | { type: 'CLOSE_VIDEO' }
   | { type: 'ANALYSIS_START' }
   | { type: 'ANALYSIS_STEP'; step: ProgressStep }
+  | { type: 'ANALYSIS_SUB_PROGRESS'; current: number; total: number }
   | { type: 'ANALYSIS_DONE'; segments: Segment[] }
   | { type: 'ANALYSIS_ERROR'; message: string }
   | { type: 'SELECT_SEGMENT'; index: number | null }
@@ -69,7 +72,11 @@ function reducer(state: AppState, action: Action): AppState {
     case 'ANALYSIS_START':
       return { ...state, analysisStatus: 'running', currentStep: null, errorMessage: null }
     case 'ANALYSIS_STEP':
-      return { ...state, currentStep: action.step }
+      return { ...state, currentStep: { ...action.step, subCurrent: undefined, subTotal: undefined } }
+    case 'ANALYSIS_SUB_PROGRESS':
+      return state.currentStep
+        ? { ...state, currentStep: { ...state.currentStep, subCurrent: action.current, subTotal: action.total } }
+        : state
     case 'ANALYSIS_DONE':
       return { ...state, analysisStatus: 'done', currentStep: null, segments: action.segments }
     case 'ANALYSIS_ERROR':
