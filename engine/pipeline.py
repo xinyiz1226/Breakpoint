@@ -69,6 +69,8 @@ def run_analysis(
         rois = select_rois(video_path)
         def _vision_progress(current, total):
             _emit({"type": "progress", "step": 3.5, "current": current, "sub_total": total}, json_progress)
+        if points:
+            _vision_progress(0, len(points))
         vision_data = analyze_motion(video_path, points, rois, progress_callback=_vision_progress)
         elapsed = time.time() - t0
         _emit({"type": "step_done", "step": 3.5, "elapsed": round(elapsed, 1)}, json_progress)
