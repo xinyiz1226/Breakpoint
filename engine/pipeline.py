@@ -67,14 +67,18 @@ def run_analysis(
         _log("[3.5/4] Analyzing player motion (vision)...", json_progress)
         t0 = time.time()
         rois = select_rois(video_path)
-        def _vision_progress(current, total):
-            _emit({"type": "progress", "step": 3.5, "current": current, "sub_total": total}, json_progress)
-        if points:
-            _vision_progress(0, len(points))
-        vision_data = analyze_motion(video_path, points, rois, progress_callback=_vision_progress)
-        elapsed = time.time() - t0
-        _emit({"type": "step_done", "step": 3.5, "elapsed": round(elapsed, 1)}, json_progress)
-        _log(f"  Done in {elapsed:.1f}s", json_progress)
+        if rois is None:
+            _log("  Court detection failed, skipping vision analysis.", json_progress)
+            _emit({"type": "step_done", "step": 3.5, "elapsed": 0, "detail": {"skipped": True}}, json_progress)
+        else:
+            def _vision_progress(current, total):
+                _emit({"type": "progress", "step": 3.5, "current": current, "sub_total": total}, json_progress)
+            if points:
+                _vision_progress(0, len(points))
+            vision_data = analyze_motion(video_path, points, rois, progress_callback=_vision_progress)
+            elapsed = time.time() - t0
+            _emit({"type": "step_done", "step": 3.5, "elapsed": round(elapsed, 1)}, json_progress)
+            _log(f"  Done in {elapsed:.1f}s", json_progress)
 
     _emit({"type": "step", "step": 4, "total": total_steps, "label": "Ranking points"}, json_progress)
     _log("[4/4] Ranking points...", json_progress)

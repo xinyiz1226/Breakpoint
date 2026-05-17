@@ -280,8 +280,8 @@ def select_rois(video_path: str) -> dict:
         print("  Court auto-detected successfully.")
 
     if corners is None:
-        print("  Auto-detection failed or rejected. Falling back to manual selection.")
-        corners = _manual_select_corners(frame)
+        print("  Auto-detection failed. Skipping vision analysis.")
+        return None
 
     rois = _corners_to_rois(corners)
 

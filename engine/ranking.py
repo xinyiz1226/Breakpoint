@@ -78,5 +78,5 @@ def rank_points(
             "score": round(score, 4),
         })
 
-    ranked.sort(key=lambda x: x["score"], reverse=True)
+    ranked.sort(key=lambda x: x["start"])
     return ranked
