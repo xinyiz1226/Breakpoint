@@ -12,6 +12,11 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
   const { state } = useAppState()
   const includedCount = state.segments.filter((s) => s.included).length
   const totalCount = state.segments.length
+  const totalDuration = state.segments
+    .filter((s) => s.included)
+    .reduce((sum, s) => sum + ((s.endAdjusted ?? s.end) - (s.startAdjusted ?? s.start)), 0)
+  const durMin = Math.floor(totalDuration / 60)
+  const durSec = Math.floor(totalDuration % 60)
   const exporting = exportProgress !== null
 
   return (
@@ -64,7 +69,7 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
         color: 'var(--color-text-secondary)',
         fontFamily: 'var(--font-mono)',
       }}>
-        {includedCount}/{totalCount} selected
+        {includedCount}/{totalCount} selected · {durMin}:{durSec.toString().padStart(2, '0')}
       </span>
 
       {exporting ? (
