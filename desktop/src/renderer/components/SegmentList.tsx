@@ -40,7 +40,7 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
 
   return (
     <div style={{
-      background: 'var(--color-cream)',
+      background: 'var(--color-bg)',
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
@@ -53,7 +53,7 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
           gap: 6,
           padding: '5px 12px 3px 12px',
           fontSize: 11,
-          color: 'var(--color-terre)',
+          color: 'var(--color-accent)',
           whiteSpace: 'nowrap',
         }}>
           <span onClick={() => dispatch({ type: 'INCLUDE_ALL' })} style={{ cursor: 'pointer' }}>All</span>
@@ -103,11 +103,11 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
                 gap: 8,
                 padding: '6px 12px',
                 cursor: 'pointer',
-                background: isSelected ? 'var(--color-cream-dark)' : 'transparent',
+                background: isSelected ? 'var(--color-surface)' : 'transparent',
                 opacity: seg.included ? 1 : 0.45,
                 fontSize: 13,
                 fontFamily: 'var(--font-mono)',
-                borderLeft: isSelected ? '3px solid var(--color-terre)' : '3px solid transparent',
+                borderLeft: isSelected ? '3px solid var(--color-accent)' : '3px solid transparent',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
               }}
@@ -120,7 +120,7 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
                   dispatch({ type: 'TOGGLE_INCLUDE', index: i })
                 }}
                 onClick={(e) => e.stopPropagation()}
-                style={{ accentColor: 'var(--color-terre)', width: 15, height: 15, cursor: 'pointer', flexShrink: 0 }}
+                style={{ accentColor: 'var(--color-accent)', width: 15, height: 15, cursor: 'pointer', flexShrink: 0 }}
               />
               <span style={{ width: 28, color: 'var(--color-text-secondary)' }}>{i + 1}</span>
               <span style={{ width: 56 }}>
@@ -140,7 +140,7 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
                   width: 6,
                   height: 6,
                   borderRadius: '50%',
-                  background: 'var(--color-terre)',
+                  background: 'var(--color-accent)',
                   flexShrink: 0,
                 }} />
               )}
@@ -235,8 +235,8 @@ function TrimEditor({
   return (
     <div style={{
       padding: '10px 16px 14px 19px',
-      background: 'var(--color-cream-dark)',
-      borderLeft: '3px solid var(--color-terre)',
+      background: 'var(--color-surface)',
+      borderLeft: '3px solid var(--color-accent)',
       display: 'flex',
       flexDirection: 'column',
       gap: 6,
@@ -260,7 +260,7 @@ function TrimEditor({
           left: `${timeToPercent(segment.start)}%`,
           width: `${timeToPercent(segment.end) - timeToPercent(segment.start)}%`,
           height: '100%',
-          background: 'var(--color-gold-light)',
+          background: 'var(--color-border)',
           opacity: 0.3,
           borderRadius: 2,
         }} />
@@ -271,7 +271,7 @@ function TrimEditor({
           left: `${startPct}%`,
           width: `${endPct - startPct}%`,
           height: '100%',
-          background: 'var(--color-terre)',
+          background: 'var(--color-accent)',
           opacity: 0.45,
           borderRadius: 2,
         }} />
@@ -286,7 +286,7 @@ function TrimEditor({
             width: 8,
             height: 32,
             marginLeft: -4,
-            background: dragging === 'start' ? 'var(--color-terre-dark)' : 'var(--color-terre)',
+            background: dragging === 'start' ? 'var(--color-accent-hover)' : 'var(--color-accent)',
             borderRadius: 3,
             cursor: 'ew-resize',
             zIndex: 2,
@@ -305,7 +305,7 @@ function TrimEditor({
             width: 8,
             height: 32,
             marginLeft: -4,
-            background: dragging === 'end' ? 'var(--color-terre-dark)' : 'var(--color-terre)',
+            background: dragging === 'end' ? 'var(--color-accent-hover)' : 'var(--color-accent)',
             borderRadius: 3,
             cursor: 'ew-resize',
             zIndex: 2,
@@ -338,11 +338,11 @@ function TrimEditor({
         fontFamily: 'var(--font-mono)',
         color: 'var(--color-text-secondary)',
       }}>
-        <span style={{ color: 'var(--color-terre)', fontWeight: 500 }}>
+        <span style={{ color: 'var(--color-accent)', fontWeight: 500 }}>
           {formatTimePrecise(effectiveStart)}
         </span>
         <span>—</span>
-        <span style={{ color: 'var(--color-terre)', fontWeight: 500 }}>
+        <span style={{ color: 'var(--color-accent)', fontWeight: 500 }}>
           {formatTimePrecise(effectiveEnd)}
         </span>
         <span>({(effectiveEnd - effectiveStart).toFixed(1)}s)</span>
@@ -371,6 +371,6 @@ const trimBtn: React.CSSProperties = {
   color: 'var(--color-text)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-sm)',
-  background: 'var(--color-cream)',
+  background: 'var(--color-bg)',
   fontFamily: 'var(--font-body)',
 }

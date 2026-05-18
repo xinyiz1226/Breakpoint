@@ -144,7 +144,7 @@ function AppInner() {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
         <div style={{ textAlign: 'center', maxWidth: 480 }}>
-          <h2 style={{ color: 'var(--color-terre)', fontFamily: 'var(--font-display)', marginBottom: 16 }}>Resource Error</h2>
+          <h2 style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>Resource Error</h2>
           <p style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>{resourceError}</p>
         </div>
       </div>
@@ -168,15 +168,16 @@ function AppInner() {
         justifyContent: 'space-between',
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--color-terre)', fontWeight: 600 }}>
-          Breakpoint
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text)' }}>
+          <span style={{ width: 8, height: 8, background: 'var(--color-accent)', borderRadius: '50%', display: 'inline-block' }} />
+          BREAKPOINT
         </span>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button onClick={handleOpenNewVideo} style={{ fontSize: 12, color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
+          <button onClick={handleOpenNewVideo} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
             Open Video
           </button>
-          <button onClick={() => startAnalysis(state.videoPath!)} style={{ fontSize: 12, color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
+          <button onClick={() => startAnalysis(state.videoPath!)} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
             Re-analyze
           </button>
         </div>

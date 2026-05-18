@@ -8,7 +8,7 @@
 
 body {
   font-family: var(--font-body);
-  background: var(--color-cream);
+  background: var(--color-bg);
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;

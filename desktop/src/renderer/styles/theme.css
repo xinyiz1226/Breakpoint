@@ -1,24 +1,21 @@
 :root {
-  --color-terre: #D4845A;
-  --color-terre-light: #E8B08E;
-  --color-terre-dark: #B06A3F;
-  --color-green: #5A8C6F;
-  --color-green-light: #7FAF92;
-  --color-green-dark: #3D6B50;
-  --color-gold: #C9A96E;
-  --color-gold-light: #DFC99A;
-  --color-cream: #FDFBF8;
-  --color-cream-dark: #F2EDE6;
-  --color-text: #2C2C2C;
-  --color-text-secondary: #6B6B6B;
-  --color-border: #E0D8CE;
+  --color-accent: #cc4e0e;
+  --color-accent-hover: #ab3d16;
+  --color-green: #00503c;
+  --color-green-light: #068d6d;
+  --color-green-dark: #033629;
+  --color-bg: #f5f0e8;
+  --color-surface: #faf7f2;
+  --color-text: #242424;
+  --color-text-secondary: #6e6e6e;
+  --color-border: #e1e1e1;
   --color-danger: #C45B5B;
 
-  --font-display: 'Playfair Display', serif;
-  --font-body: 'DM Sans', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 }

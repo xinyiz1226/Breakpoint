@@ -26,7 +26,7 @@ export default function Timeline({ onSeek }: Props) {
     <div style={{
       padding: '8px 16px',
       borderTop: '1px solid var(--color-border)',
-      background: 'var(--color-cream)',
+      background: 'var(--color-bg)',
     }}>
       <div style={{
         display: 'flex',
@@ -55,7 +55,7 @@ export default function Timeline({ onSeek }: Props) {
       <div style={{
         position: 'relative',
         height: 32,
-        background: 'var(--color-cream-dark)',
+        background: 'var(--color-surface)',
         borderRadius: 'var(--radius-sm)',
         overflow: 'hidden',
       }}>

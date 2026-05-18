@@ -29,11 +29,12 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
       <h1 style={{
         fontFamily: 'var(--font-display)',
         fontSize: 48,
-        fontWeight: 700,
-        color: 'var(--color-terre)',
+        fontWeight: 900,
+        color: 'var(--color-text)',
         letterSpacing: '-0.02em',
+        textTransform: 'uppercase',
       }}>
-        Breakpoint
+        BREAK<span style={{ color: 'var(--color-accent)' }}>POINT</span><span style={{ color: 'var(--color-accent)' }}>.</span>
       </h1>
 
       <p style={{ color: 'var(--color-text-secondary)', fontSize: 14 }}>
@@ -43,17 +44,20 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
       <button
         onClick={handleOpen}
         style={{
-          padding: '12px 32px',
-          background: 'var(--color-terre)',
+          padding: '14px 28px',
+          background: 'var(--color-accent)',
           color: '#fff',
-          borderRadius: 'var(--radius-md)',
-          fontSize: 15,
-          fontWeight: 600,
+          borderRadius: 'var(--radius-sm)',
+          fontSize: 13,
+          fontWeight: 700,
+          fontFamily: 'var(--font-display)',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase' as const,
           transition: 'background 0.15s',
           WebkitAppRegion: 'no-drag',
         } as React.CSSProperties}
-        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-terre-dark)'}
-        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--color-terre)'}
+        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-accent-hover)'}
+        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--color-accent)'}
       >
         Open Video
       </button>
@@ -81,7 +85,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
                   borderRadius: 'var(--radius-sm)',
                   fontFamily: 'var(--font-mono)',
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-cream-dark)'}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-surface)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 {p.split(/[\\/]/).pop()}
