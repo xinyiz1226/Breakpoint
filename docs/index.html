@@ -1,0 +1,1141 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Breakpoint — AI-Powered Tennis Highlight Editor</title>
+<style>
+/* ───── Reset & Tokens ───── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg:       #f5f0e8;
+  --surface:  #faf7f2;
+  --fg:       #242424;
+  --muted:    #6e6e6e;
+  --border:   #e1e1e1;
+  --accent:   #cc4e0e;
+  --accent-h: #ab3d16;
+  --green:    #00503c;
+  --green-d:  #033629;
+  --green-l:  #068d6d;
+
+  --font-display: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --container: 1280px;
+  --pad: 64px;
+}
+
+@media (max-width: 1280px) { :root { --pad: 44px; } }
+@media (max-width: 880px)  { :root { --pad: 32px; } }
+@media (max-width: 560px)  { :root { --pad: 20px; } }
+
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: var(--font-body);
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Clay texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(180, 120, 60, 0.04), transparent),
+    radial-gradient(ellipse 60% 80% at 80% 70%, rgba(160, 100, 40, 0.03), transparent);
+  mix-blend-mode: multiply;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-h); }
+
+.container {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
+/* ───── Lang Toggle ───── */
+.lang-toggle {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.lang-toggle button {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: none;
+  padding: 6px 14px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--muted);
+  transition: all 0.15s ease;
+}
+.lang-toggle button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+[data-lang="zh"] { display: none; }
+body.zh [data-lang="zh"] { display: initial; }
+body.zh [data-lang="en"] { display: none; }
+
+/* ───── Navigation ───── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  background: var(--green-d);
+  border-bottom: 3px solid var(--accent);
+}
+.nav-inner {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+}
+.nav-brand {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nav-brand .ball {
+  width: 10px; height: 10px;
+  background: var(--accent);
+  border-radius: 50%;
+  display: inline-block;
+}
+.nav-links {
+  display: flex;
+  gap: 28px;
+  list-style: none;
+}
+.nav-links a {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.75);
+  transition: color 0.15s;
+}
+.nav-links a:hover { color: #fff; }
+.nav-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 28px; height: 28px;
+  position: relative;
+}
+.nav-hamburger span,
+.nav-hamburger span::before,
+.nav-hamburger span::after {
+  display: block;
+  width: 22px; height: 2px;
+  background: #fff;
+  position: absolute;
+  left: 3px;
+  transition: 0.2s;
+}
+.nav-hamburger span { top: 13px; }
+.nav-hamburger span::before { content: ''; top: -7px; }
+.nav-hamburger span::after { content: ''; top: 7px; }
+
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .nav-hamburger { display: block; }
+  .nav-links.open {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 60px; left: 0; right: 0;
+    background: var(--green-d);
+    padding: 20px var(--pad);
+    gap: 16px;
+    border-bottom: 3px solid var(--accent);
+  }
+}
+
+/* ───── Hero ───── */
+.hero {
+  position: relative;
+  min-height: calc(100vh - 60px);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, var(--green-d) 0%, #0a2e22 40%, #1a1008 70%, #3a1a08 100%);
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 48px,
+      rgba(255,255,255,0.03) 48px,
+      rgba(255,255,255,0.03) 50px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 48px,
+      rgba(255,255,255,0.03) 48px,
+      rgba(255,255,255,0.03) 50px
+    );
+  pointer-events: none;
+}
+/* Clay court texture */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 120% 80% at 70% 60%, rgba(204, 78, 14, 0.15), transparent 70%),
+    radial-gradient(ellipse 80% 100% at 30% 80%, rgba(204, 78, 14, 0.08), transparent 60%);
+  pointer-events: none;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+  width: 100%;
+}
+.hero-eyebrow {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hero-eyebrow::before {
+  content: '';
+  width: 32px; height: 2px;
+  background: var(--accent);
+}
+.hero h1 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(48px, 8vw, 110px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: #fff;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+.hero h1 .accent { color: var(--accent); }
+.hero-sub {
+  font-size: clamp(16px, 2vw, 22px);
+  color: rgba(255,255,255,0.7);
+  max-width: 560px;
+  line-height: 1.6;
+  margin-bottom: 40px;
+}
+.hero-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.btn {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--accent-h);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+.btn-ghost:hover {
+  border-color: #fff;
+  color: #fff;
+  transform: translateY(-1px);
+}
+.btn svg { width: 16px; height: 16px; }
+
+/* Court lines decoration */
+.hero-court {
+  position: absolute;
+  right: -5%;
+  bottom: -10%;
+  width: 55%;
+  height: 120%;
+  opacity: 0.06;
+  pointer-events: none;
+  z-index: 1;
+}
+.hero-court .line {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+/* Hero stats */
+.hero-stats {
+  display: flex;
+  gap: 48px;
+  margin-top: 60px;
+  padding-top: 32px;
+  border-top: 1px solid rgba(255,255,255,0.12);
+}
+.hero-stat-num {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 32px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.hero-stat-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .hero-stats { gap: 28px; flex-wrap: wrap; }
+}
+
+/* ───── Section Shared ───── */
+.section {
+  padding: 110px 0;
+}
+.section-rule {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 56px;
+}
+.section-num {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.section-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(28px, 4vw, 42px);
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  margin-bottom: 16px;
+}
+.section-title .dot {
+  color: var(--accent);
+}
+.section-sub {
+  color: var(--muted);
+  font-size: 16px;
+  max-width: 560px;
+  line-height: 1.65;
+  margin-bottom: 48px;
+}
+
+/* ───── Features ───── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+@media (max-width: 880px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .features-grid { grid-template-columns: 1fr; } }
+
+.feature-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 32px 28px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  position: relative;
+  overflow: hidden;
+}
+.feature-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.06);
+}
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s ease;
+}
+.feature-card:hover::before { transform: scaleX(1); }
+
+.feature-icon {
+  width: 44px; height: 44px;
+  background: var(--green);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  color: #fff;
+}
+.feature-icon svg { width: 22px; height: 22px; }
+
+.feature-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+}
+.feature-card h3 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+.feature-card p {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* ───── How It Works ───── */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  position: relative;
+}
+.steps::before {
+  content: '';
+  position: absolute;
+  top: 34px;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: var(--border);
+}
+.step {
+  text-align: center;
+  position: relative;
+  padding: 0 12px;
+}
+.step-dot {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  margin: 22px auto 20px;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.step-dot span {
+  width: 8px; height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+.step h4 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.step p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.step-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .steps { grid-template-columns: 1fr; gap: 32px; }
+  .steps::before { display: none; }
+  .step { text-align: left; padding-left: 48px; }
+  .step-dot { position: absolute; left: 0; top: 0; margin: 0; }
+}
+
+/* ───── Screenshots ───── */
+.screenshots-wrap {
+  position: relative;
+}
+.screenshot-main {
+  background: var(--green-d);
+  border-radius: 8px;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+}
+.screenshot-main::before {
+  content: '';
+  position: absolute;
+  top: 12px; left: 12px;
+  width: 22px; height: 22px;
+  border-top: 1px solid rgba(255,255,255,0.2);
+  border-left: 1px solid rgba(255,255,255,0.2);
+}
+.screenshot-main::after {
+  content: '';
+  position: absolute;
+  bottom: 12px; right: 12px;
+  width: 22px; height: 22px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  border-right: 1px solid rgba(255,255,255,0.2);
+}
+.screenshot-plate {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  letter-spacing: 0.04em;
+  position: absolute;
+  bottom: 16px; left: 32px;
+}
+.screenshot-placeholder {
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.4);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  gap: 12px;
+}
+.screenshot-placeholder svg { opacity: 0.3; }
+
+.screenshots-tabs {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+.screenshots-tabs button {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.screenshots-tabs button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.screenshots-tabs button:hover:not(.active) {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+
+/* ───── Tech Stack ───── */
+.tech-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: start;
+}
+@media (max-width: 768px) { .tech-grid { grid-template-columns: 1fr; gap: 40px; } }
+
+.tech-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.tech-table th,
+.tech-table td {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 14px;
+}
+.tech-table th {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tech-table td:first-child {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  width: 140px;
+}
+
+.install-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 36px 32px;
+}
+.install-card h3 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 20px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.install-card p {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin-bottom: 24px;
+}
+.install-steps {
+  list-style: none;
+  margin-bottom: 28px;
+}
+.install-steps li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.install-steps li .num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* ───── Footer ───── */
+footer {
+  background: var(--green-d);
+  color: rgba(255,255,255,0.8);
+  padding: 80px 0 40px;
+}
+.footer-top {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 48px;
+  margin-bottom: 60px;
+}
+@media (max-width: 768px) {
+  .footer-top { grid-template-columns: 1fr; gap: 32px; }
+}
+.footer-brand {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(36px, 5vw, 54px);
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 16px;
+}
+.footer-brand .dot { color: var(--accent); }
+footer p {
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgba(255,255,255,0.55);
+}
+.footer-col h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.footer-col a {
+  display: block;
+  font-size: 14px;
+  color: rgba(255,255,255,0.65);
+  padding: 5px 0;
+  transition: color 0.15s;
+}
+.footer-col a:hover { color: #fff; }
+.footer-bottom {
+  border-top: 1px solid rgba(255,255,255,0.1);
+  padding-top: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.footer-bottom span {
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.footer-bottom .pulse {
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse 2.4s ease-in-out infinite;
+  margin-right: 6px;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ───── Animations ───── */
+.fade-up {
+  opacity: 1;
+  transform: translateY(0);
+}
+.js-scroll .fade-up {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.js-scroll .fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<!-- Language Toggle -->
+<div class="lang-toggle">
+  <button class="active" onclick="setLang('en')">EN</button>
+  <button onclick="setLang('zh')">中文</button>
+</div>
+
+<!-- Navigation -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <span class="ball"></span>
+      BREAKPOINT
+    </div>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#features" data-lang="en">Features</a><a href="#features" data-lang="zh">功能</a></li>
+      <li><a href="#workflow" data-lang="en">How It Works</a><a href="#workflow" data-lang="zh">工作流程</a></li>
+      <li><a href="#preview" data-lang="en">Preview</a><a href="#preview" data-lang="zh">预览</a></li>
+      <li><a href="#tech" data-lang="en">Tech & Install</a><a href="#tech" data-lang="zh">技术 & 安装</a></li>
+      <li><a href="https://github.com/xinyiz1226/Breakpoint" target="_blank">GitHub ↗</a></li>
+    </ul>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle navigation">
+      <span></span>
+    </button>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <svg class="hero-court" viewBox="0 0 600 800" fill="none">
+    <rect class="line" x="60" y="60" width="480" height="680" rx="0"/>
+    <line class="line" x1="60" y1="400" x2="540" y2="400"/>
+    <line class="line" x1="300" y1="60" x2="300" y2="740"/>
+    <rect class="line" x="140" y="60" width="320" height="680"/>
+    <rect class="line" x="140" y="240" width="320" height="320"/>
+    <line class="line" x1="140" y1="400" x2="460" y2="400"/>
+  </svg>
+
+  <div class="hero-content">
+    <div class="hero-eyebrow">
+      <span data-lang="en">AI-Powered Tennis Highlight Editor</span>
+      <span data-lang="zh">AI 驱动的网球精彩集锦编辑器</span>
+    </div>
+    <h1>
+      BREAK<span class="accent">POINT</span><span class="dot" style="color:var(--accent)">.</span>
+    </h1>
+    <p class="hero-sub">
+      <span data-lang="en">One click. 70–80% of dead time — gone. Powered by cutting-edge AI, Breakpoint instantly strips the filler from your matches and practice sessions, so you only keep the highlights worth sharing.</span>
+      <span data-lang="zh">一键操作，70%–80% 的垃圾时间瞬间消失。Breakpoint 用最先进的 AI 技术，极速剔除业余比赛和练习中的无效片段，只为你留下值得分享的精彩瞬间。</span>
+    </p>
+    <div class="hero-actions">
+      <a href="https://github.com/xinyiz1226/Breakpoint/releases" target="_blank" class="btn btn-primary">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg>
+        <span data-lang="en">Download</span>
+        <span data-lang="zh">下载</span>
+      </a>
+      <a href="https://github.com/xinyiz1226/Breakpoint" target="_blank" class="btn btn-ghost">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+        GitHub
+      </a>
+    </div>
+
+  </div>
+</section>
+
+<!-- Features -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-rule fade-up">
+      <span class="section-num">01</span>
+      <span class="section-line"></span>
+      <span class="section-num" data-lang="en">FEATURES</span>
+      <span class="section-num" data-lang="zh">功能</span>
+    </div>
+    <h2 class="section-title fade-up">
+      <span data-lang="en">Five Engines<span class="dot">.</span> One Pipeline</span>
+      <span data-lang="zh">五大引擎<span class="dot">.</span> 一条流水线</span>
+    </h2>
+    <p class="section-sub fade-up">
+      <span data-lang="en">From raw match footage to polished highlights — every stage is automated, every parameter tunable.</span>
+      <span data-lang="zh">从原始比赛视频到精彩集锦——每个环节自动化，每个参数可调。</span>
+    </p>
+    <div class="features-grid">
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+        </div>
+        <div class="feature-num">FIG. 01</div>
+        <h3><span data-lang="en">Hit Detection</span><span data-lang="zh">击球检测</span></h3>
+        <p><span data-lang="en">Audio onset analysis with adaptive thresholds isolates every ball strike from crowd noise and commentary.</span><span data-lang="zh">自适应阈值的音频起始分析，从人群噪音和解说中分离每一次击球。</span></p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+        </div>
+        <div class="feature-num">FIG. 02</div>
+        <h3><span data-lang="en">Smart Segmentation</span><span data-lang="zh">智能分段</span></h3>
+        <p><span data-lang="en">Splits matches into rallies using silence gaps, density trimming, and duration filtering — no manual cuts.</span><span data-lang="zh">利用静默间隔、密度修剪和时长过滤将比赛分割成回合——无需手动剪辑。</span></p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+        </div>
+        <div class="feature-num">FIG. 03</div>
+        <h3><span data-lang="en">Vision Ranking</span><span data-lang="zh">视觉排名</span></h3>
+        <p><span data-lang="en">Computer vision scores each rally by player motion intensity — court coverage, diving saves, net rushes.</span><span data-lang="zh">计算机视觉按球员运动强度评分——场地覆盖、飞身救球、网前突击。</span></p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <div class="feature-num">FIG. 04</div>
+        <h3><span data-lang="en">Timeline Editor</span><span data-lang="zh">时间线编辑器</span></h3>
+        <p><span data-lang="en">Desktop GUI for browsing, previewing, and adjusting rally boundaries with trim handles.</span><span data-lang="zh">桌面 GUI，支持浏览、预览和通过拖拽手柄调整回合边界。</span></p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <div class="feature-num">FIG. 05</div>
+        <h3><span data-lang="en">One-Click Export</span><span data-lang="zh">一键导出</span></h3>
+        <p><span data-lang="en">Compile selected segments into a single highlight .mp4 — ready to share, post, or archive.</span><span data-lang="zh">将选中片段合并为单个集锦 .mp4——即可分享、发布或存档。</span></p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- How It Works -->
+<section class="section" id="workflow" style="background: var(--surface);">
+  <div class="container">
+    <div class="section-rule fade-up">
+      <span class="section-num">02</span>
+      <span class="section-line"></span>
+      <span class="section-num" data-lang="en">WORKFLOW</span>
+      <span class="section-num" data-lang="zh">工作流程</span>
+    </div>
+    <h2 class="section-title fade-up">
+      <span data-lang="en">From Footage to Highlights<span class="dot">.</span></span>
+      <span data-lang="zh">从视频到集锦<span class="dot">.</span></span>
+    </h2>
+    <p class="section-sub fade-up">
+      <span data-lang="en">Five steps. One click to start, one click to finish.</span>
+      <span data-lang="zh">五个步骤。一键开始，一键完成。</span>
+    </p>
+    <div class="steps fade-up">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-dot"><span></span></div>
+        <h4><span data-lang="en">Open</span><span data-lang="zh">打开</span></h4>
+        <p><span data-lang="en">Load any tennis match video file</span><span data-lang="zh">加载任意网球比赛视频</span></p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-dot"><span></span></div>
+        <h4><span data-lang="en">Analyze</span><span data-lang="zh">分析</span></h4>
+        <p><span data-lang="en">Audio + vision pipeline runs automatically</span><span data-lang="zh">音频 + 视觉流水线自动运行</span></p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-dot"><span></span></div>
+        <h4><span data-lang="en">Browse</span><span data-lang="zh">浏览</span></h4>
+        <p><span data-lang="en">Ranked rallies with preview playback</span><span data-lang="zh">按排名浏览回合并预览</span></p>
+      </div>
+      <div class="step">
+        <div class="step-num">04</div>
+        <div class="step-dot"><span></span></div>
+        <h4><span data-lang="en">Adjust</span><span data-lang="zh">调整</span></h4>
+        <p><span data-lang="en">Fine-tune boundaries with trim handles</span><span data-lang="zh">通过拖拽手柄精调边界</span></p>
+      </div>
+      <div class="step">
+        <div class="step-num">05</div>
+        <div class="step-dot"><span></span></div>
+        <h4><span data-lang="en">Export</span><span data-lang="zh">导出</span></h4>
+        <p><span data-lang="en">One-click .mp4 highlight compilation</span><span data-lang="zh">一键导出 .mp4 集锦</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Screenshots / Preview -->
+<section class="section" id="preview">
+  <div class="container">
+    <div class="section-rule fade-up">
+      <span class="section-num">03</span>
+      <span class="section-line"></span>
+      <span class="section-num" data-lang="en">PREVIEW</span>
+      <span class="section-num" data-lang="zh">预览</span>
+    </div>
+    <h2 class="section-title fade-up">
+      <span data-lang="en">The Editor<span class="dot">.</span></span>
+      <span data-lang="zh">编辑器<span class="dot">.</span></span>
+    </h2>
+    <p class="section-sub fade-up">
+      <span data-lang="en">A visual timeline for every rally. Preview, toggle, trim — then export.</span>
+      <span data-lang="zh">每个回合的可视化时间线。预览、切换、裁剪——然后导出。</span>
+    </p>
+    <div class="screenshots-wrap fade-up">
+      <div class="screenshots-tabs" id="screenshotTabs">
+        <button class="active" data-tab="editor">
+          <span data-lang="en">Editor View</span>
+          <span data-lang="zh">编辑器视图</span>
+        </button>
+        <button data-tab="welcome">
+          <span data-lang="en">Welcome Screen</span>
+          <span data-lang="zh">欢迎界面</span>
+        </button>
+      </div>
+      <div class="screenshot-main" style="margin-top: 20px;">
+        <div class="screenshot-placeholder" id="screenshotDisplay">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polygon points="9.5 8 9.5 13 14.5 10.5" fill="currentColor" stroke="none"/></svg>
+          <span id="screenshotLabel" data-lang="en">Editor — Visual Timeline & Rally Browser</span>
+          <span id="screenshotLabelZh" data-lang="zh">编辑器——可视化时间线 & 回合浏览器</span>
+        </div>
+        <div class="screenshot-plate">PLATE Nº 01 — BREAKPOINT DESKTOP APP</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tech & Install -->
+<section class="section" id="tech" style="background: var(--surface);">
+  <div class="container">
+    <div class="section-rule fade-up">
+      <span class="section-num">04</span>
+      <span class="section-line"></span>
+      <span class="section-num" data-lang="en">TECH & INSTALL</span>
+      <span class="section-num" data-lang="zh">技术 & 安装</span>
+    </div>
+    <h2 class="section-title fade-up">
+      <span data-lang="en">Under the Hood<span class="dot">.</span></span>
+      <span data-lang="zh">技术架构<span class="dot">.</span></span>
+    </h2>
+    <div class="tech-grid fade-up">
+      <div>
+        <table class="tech-table">
+          <thead>
+            <tr>
+              <th><span data-lang="en">Layer</span><span data-lang="zh">层级</span></th>
+              <th><span data-lang="en">Technology</span><span data-lang="zh">技术</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Engine</td><td>Python 3.12 · librosa · OpenCV · NumPy · SciPy</td></tr>
+            <tr><td>Desktop</td><td>Electron · React · TypeScript · Vite</td></tr>
+            <tr><td>Video</td><td>ffmpeg</td></tr>
+            <tr><td>Build</td><td>PyInstaller (engine) · electron-builder (installer)</td></tr>
+            <tr><td>License</td><td>AGPL-3.0</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="install-card">
+        <h3><span data-lang="en">Quick Install</span><span data-lang="zh">快速安装</span></h3>
+        <p><span data-lang="en">Ships as a standalone Windows installer. No Python or ffmpeg needed.</span><span data-lang="zh">以独立 Windows 安装包发布。无需安装 Python 或 ffmpeg。</span></p>
+        <ol class="install-steps">
+          <li>
+            <span class="num">01</span>
+            <span><span data-lang="en">Download the .msi from <a href="https://github.com/xinyiz1226/Breakpoint/releases" target="_blank">GitHub Releases</a></span><span data-lang="zh">从 <a href="https://github.com/xinyiz1226/Breakpoint/releases" target="_blank">GitHub Releases</a> 下载 .msi 安装包</span></span>
+          </li>
+          <li>
+            <span class="num">02</span>
+            <span><span data-lang="en">Run the installer</span><span data-lang="zh">运行安装程序</span></span>
+          </li>
+          <li>
+            <span class="num">03</span>
+            <span><span data-lang="en">Open Breakpoint, load a match video — done</span><span data-lang="zh">打开 Breakpoint，加载比赛视频——完成</span></span>
+          </li>
+        </ol>
+        <a href="https://github.com/xinyiz1226/Breakpoint/releases" target="_blank" class="btn btn-primary" style="width:100%;justify-content:center;">
+          <svg viewBox="0 0 16 16" fill="currentColor" style="width:16px;height:16px"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg>
+          <span data-lang="en">Download Latest Release</span>
+          <span data-lang="zh">下载最新版本</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <div class="footer-top">
+      <div>
+        <div class="footer-brand">Breakpoint<span class="dot">.</span></div>
+        <p><span data-lang="en">AI-powered tennis highlight extraction. Open source under AGPL-3.0.</span><span data-lang="zh">AI 驱动的网球精彩集锦提取。基于 AGPL-3.0 开源协议。</span></p>
+      </div>
+      <div class="footer-col">
+        <h4><span data-lang="en">Project</span><span data-lang="zh">项目</span></h4>
+        <a href="https://github.com/xinyiz1226/Breakpoint" target="_blank">GitHub Repository</a>
+        <a href="https://github.com/xinyiz1226/Breakpoint/releases" target="_blank">Releases</a>
+        <a href="https://github.com/xinyiz1226/Breakpoint/issues" target="_blank">Issues</a>
+      </div>
+      <div class="footer-col">
+        <h4><span data-lang="en">Resources</span><span data-lang="zh">资源</span></h4>
+        <a href="https://github.com/xinyiz1226/Breakpoint#readme" target="_blank">README</a>
+        <a href="https://github.com/xinyiz1226/Breakpoint/blob/main/LICENSE" target="_blank">License (AGPL-3.0)</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span><span class="pulse"></span> <span data-lang="en">Open Source · AGPL-3.0</span><span data-lang="zh">开源 · AGPL-3.0</span></span>
+      <span>MMXXVI</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Language toggle
+function setLang(lang) {
+  document.body.classList.toggle('zh', lang === 'zh');
+  document.querySelectorAll('.lang-toggle button').forEach(b => {
+    b.classList.toggle('active', b.textContent.trim() === (lang === 'zh' ? '中文' : 'EN'));
+  });
+  localStorage.setItem('bp-lang', lang);
+}
+const saved = localStorage.getItem('bp-lang');
+if (saved) setLang(saved);
+
+// Mobile nav toggle
+document.getElementById('navToggle').addEventListener('click', () => {
+  document.getElementById('navLinks').classList.toggle('open');
+});
+
+// Screenshot tabs
+document.querySelectorAll('#screenshotTabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#screenshotTabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.getAttribute('data-tab');
+    const labelEn = document.getElementById('screenshotLabel');
+    const labelZh = document.getElementById('screenshotLabelZh');
+    const plate = document.querySelector('.screenshot-plate');
+    if (tab === 'editor') {
+      labelEn.textContent = 'Editor — Visual Timeline & Rally Browser';
+      labelZh.textContent = '编辑器——可视化时间线 & 回合浏览器';
+      plate.textContent = 'PLATE Nº 01 — BREAKPOINT DESKTOP APP';
+    } else {
+      labelEn.textContent = 'Welcome — File Selection & Quick Start';
+      labelZh.textContent = '欢迎界面——文件选择 & 快速开始';
+      plate.textContent = 'PLATE Nº 02 — BREAKPOINT WELCOME';
+    }
+  });
+});
+
+// Scroll animations — progressive enhancement
+if ('IntersectionObserver' in window) {
+  document.body.classList.add('js-scroll');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+  document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+}
+</script>
+
+</body>
+</html>
