@@ -60,6 +60,10 @@ tools/           Development utilities (comparison, parameter sweep, tests)
 web/             Legacy Flask web UI
 ```
 
-## License
+## Open Source License and Commercial Licensing (License)
 
-MIT
+This project is released under the **GNU Affero General Public License v3 (AGPL-3.0)**.
+
+- **Personal / coach / research use**: free of charge. You may freely deploy, modify, and use this project for personal match review or teaching.
+- **Cloud service and commercial use (anti-free-riding clause)**: if you plan to integrate this project's core algorithms (including but not limited to tennis target detection, rally segmentation, and automatic highlight editing logic) into your **commercial SaaS, WeChat mini-program, commercial app, or paid website backend services**, then under AGPL-3.0, **you must open-source the complete source code of your entire commercial system without additional restrictions**.
+- **Commercial License**: if you do not want to open-source your system code but would like to use Breakpoint technology in commercial products, please contact the author for a commercial license.
