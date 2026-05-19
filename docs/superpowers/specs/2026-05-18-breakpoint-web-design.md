@@ -4,6 +4,8 @@
 
 为 Breakpoint（自动化网球精彩片段提取系统）构建 Web 版本，包含产品 Landing Page 和在线 Web 应用，支持桌面端和移动端访问。采用单体部署架构，双区域部署（国内阿里云 + 海外 Azure）。
 
+**现有资产：** 项目已有一个完整的 Landing Page（`docs/index.html`），通过 GitHub Pages 托管，具备中英双语、响应式设计、网球红土风格配色（橙 `#cc4e0e` + 深绿 `#00503c`）、功能介绍、工作流程、截图预览和安装指南。Web 版应基于此扩展，而非从零构建。
+
 ## 设计决策
 
 | 决策项 | 选择 | 理由 |
@@ -12,7 +14,7 @@
 | 处理模式 | 混合模式 | 轻量操作客户端，重计算服务端 |
 | 用户规模 | 小规模（1-5 并发） | 个人/朋友使用 |
 | 技术栈 | FastAPI + React | 复用现有 engine 和桌面端组件 |
-| 设计风格 | 运动/活力 | 明亮配色，网球元素，面向运动爱好者 |
+| 设计风格 | 运动/活力（复用现有） | 沿用 `docs/index.html` 的红土橙 + 深绿配色和 Inter 字体系统 |
 | 认证 | 免费 + 登录 | 注册账号即可使用全部功能 |
 | 前端位置 | 独立 `web/` 目录 | 与 `desktop/`、`engine/` 并列 |
 
@@ -21,17 +23,46 @@
 ### 整体架构
 
 ```
-国内用户 → DNS → 阿里云 ECS
-                  ├── Nginx + React SPA
-                  ├── FastAPI + Celery + Redis + PostgreSQL
-                  └── 阿里云 OSS (视频存储)
+Landing Page → GitHub Pages（docs/index.html，全球 CDN，免费）
+                ├── 海外用户直接访问
+                └── 国内用户通过 CDN 或镜像访问
 
-海外用户 → DNS → Azure VM
-                  ├── Nginx + React SPA
-                  ├── FastAPI + Celery + Redis + PostgreSQL
-                  └── Azure Blob Storage (视频存储)
+Web App (登录后):
+  国内用户 → DNS → 阿里云 ECS
+                    ├── Nginx + React SPA
+                    ├── FastAPI + Celery + Redis + PostgreSQL
+                    └── 阿里云 OSS (视频存储)
+
+  海外用户 → DNS → Azure VM
+                    ├── Nginx + React SPA
+                    ├── FastAPI + Celery + Redis + PostgreSQL
+                    └── Azure Blob Storage (视频存储)
 
 共用同一份代码，通过环境变量切换存储后端和认证 provider
+```
+
+### Landing Page 策略
+
+现有 `docs/index.html` 继续通过 GitHub Pages 托管，扩展以下内容：
+- 在 Hero 区域和导航栏增加"在线使用 / Try Online"按钮，链接到 Web App
+- 新增一个 Section 介绍 Web 版功能（在线上传、分析、导出）
+- 根据用户地区（IP 或浏览器语言）引导到对应区域的 Web App（国内 → 阿里云实例，海外 → Azure 实例）
+
+### 设计系统
+
+Web App 复用 Landing Page 已有的设计 token：
+
+```css
+--bg:       #f5f0e8;       /* 页面背景 */
+--surface:  #faf7f2;       /* 卡片/面板背景 */
+--fg:       #242424;       /* 主文字色 */
+--muted:    #6e6e6e;       /* 次要文字 */
+--accent:   #cc4e0e;       /* 红土橙，主强调色 */
+--green:    #00503c;       /* 深绿，导航/页脚背景 */
+--green-d:  #033629;       /* 更深绿 */
+--font-display: 'Inter Tight';  /* 标题字体 */
+--font-body:    'Inter';        /* 正文字体 */
+--font-mono:    'JetBrains Mono'; /* 代码/数据字体 */
 ```
 
 ### 服务组件（docker-compose）
@@ -62,12 +93,15 @@
 Breakpoint/
 ├── engine/          # 现有 Python 引擎（共用）
 ├── desktop/         # 现有 Electron 桌面端
+├── docs/
+│   └── index.html   # 现有 Landing Page（GitHub Pages）
 ├── web/             # 新增 Web 版
-│   ├── frontend/    # React SPA（Vite + TypeScript）
+│   ├── frontend/    # React SPA（Vite + TypeScript）—— 仅 Web App 部分
 │   │   ├── src/
-│   │   │   ├── pages/       # Landing, Login, App 等页面
+│   │   │   ├── pages/       # Login, Projects, Editor, Export 等页面
 │   │   │   ├── components/  # 从 desktop 迁移/改造的组件
 │   │   │   ├── api/         # 后端 API 调用层
+│   │   │   ├── styles/      # 复用 Landing Page 的设计 token
 │   │   │   └── stores/      # 状态管理（Zustand）
 │   │   └── package.json
 │   ├── backend/     # FastAPI 服务
@@ -78,31 +112,31 @@ Breakpoint/
 │   │   │   ├── storage/     # 存储抽象（OSS / Azure Blob）
 │   │   │   └── auth/        # 认证 provider
 │   │   └── requirements.txt
-│   ├── docker-compose.yml
+│   ├── docker-compose.yml   # 一键部署
 │   ├── nginx.conf
 │   └── Dockerfile
-└── docs/
 ```
 
 ## 前端页面结构
 
 ### 路由
 
+Landing Page 由 GitHub Pages 独立托管，Web App 路由如下：
+
 ```
-/                → Landing Page（产品介绍、功能展示、下载桌面版、注册入口）
 /login           → 登录页（国内：手机号/微信，海外：Google/GitHub）
 /register        → 注册页
-/app             → 主应用（需登录）
-/app/projects    → 项目列表（历史分析记录）
-/app/new         → 新建项目（上传视频）
-/app/:id         → 项目详情（时间线编辑器、片段列表、预览播放）
-/app/:id/export  → 导出设置与下载
+/projects        → 项目列表（历史分析记录，登录后默认页）
+/new             → 新建项目（上传视频）
+/:id             → 项目详情（时间线编辑器、片段列表、预览播放）
+/:id/export      → 导出设置与下载
 ```
 
 ### 用户核心流程
 
 ```
-Landing → 注册/登录 → 上传视频 → 等待分析（进度条）
+Landing Page (GitHub Pages) → 点击"在线使用" → 注册/登录 (Web App)
+→ 上传视频 → 等待分析（进度条）
 → 时间线编辑器（浏览片段、调整选区、预览）
 → 选择片段 → 导出精彩集锦 → 下载
 ```
