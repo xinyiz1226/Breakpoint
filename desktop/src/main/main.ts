@@ -18,12 +18,20 @@ process.env.VITE_PUBLIC = app.isPackaged
 let win: BrowserWindow | null = null
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
+function getWindowIconPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'icon.ico')
+  }
+  return path.resolve(path.join(__dirname, '../../build/icon.ico'))
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 600,
+    icon: getWindowIconPath(),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
@@ -60,6 +68,10 @@ ipcMain.handle('open-file-dialog', async (event) => {
 
 ipcMain.handle('get-recent-projects', () => {
   return store.get('recentProjects')
+})
+
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion()
 })
 
 ipcMain.handle('check-resources', () => {

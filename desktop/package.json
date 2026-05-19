@@ -1,6 +1,6 @@
 {
   "name": "breakpoint",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": "Xinyi Zhang",
   "description": "Tennis highlight extraction desktop app",
   "main": "dist-electron/main/main.js",
@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "package": "npm run build && electron-builder --win"
+    "package": "npm run build && electron-builder --config electron-builder.yml --win"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
@@ -25,5 +25,20 @@
     "vite": "^5.4.11",
     "vite-plugin-electron": "^0.28.8",
     "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "build": {
+    "appId": "com.breakpoint.app",
+    "productName": "Breakpoint",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": ["nsis", "msi"],
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

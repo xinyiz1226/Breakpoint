@@ -17,6 +17,7 @@ export interface ProgressEvent {
 contextBridge.exposeInMainWorld('api', {
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
   getRecentProjects: () => ipcRenderer.invoke('get-recent-projects'),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version') as Promise<string>,
   checkResources: () => ipcRenderer.invoke('check-resources') as Promise<{ ok: boolean; missing: string[] }>,
   runAnalysis: (videoPath: string) => ipcRenderer.invoke('run-analysis', videoPath),
   cancelAnalysis: () => ipcRenderer.invoke('cancel-analysis'),

@@ -27,6 +27,7 @@ declare global {
     api: {
       openFileDialog: () => Promise<string | null>
       getRecentProjects: () => Promise<string[]>
+      getAppVersion: () => Promise<string>
       checkResources: () => Promise<{ ok: boolean; missing: string[] }>
       runAnalysis: (videoPath: string) => Promise<{ error?: string }>
       cancelAnalysis: () => Promise<void>
