@@ -26,7 +26,7 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
       gap: 8,
       padding: '6px 16px',
       borderBottom: '1px solid var(--color-border)',
-      background: 'var(--color-cream)',
+      background: 'var(--color-bg)',
       fontSize: 13,
       position: 'relative',
     }}>
@@ -37,7 +37,7 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
           bottom: 0,
           height: 3,
           width: `${(exportProgress ?? 0) * 100}%`,
-          background: 'var(--color-terre)',
+          background: 'var(--color-accent)',
           transition: 'width 0.3s ease-out',
         }} />
       )}
@@ -85,7 +85,7 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
       ) : (
         <button onClick={onExport} disabled={includedCount === 0} style={{
           ...btnStyle,
-          background: includedCount > 0 ? 'var(--color-terre)' : 'var(--color-border)',
+          background: includedCount > 0 ? 'var(--color-accent)' : 'var(--color-border)',
           color: '#fff',
           padding: '4px 16px',
           borderRadius: 'var(--radius-sm)',
@@ -98,7 +98,11 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
 }
 
 const btnStyle: React.CSSProperties = {
-  fontSize: 13,
+  fontFamily: 'var(--font-display)',
+  fontSize: 12,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
   padding: '4px 10px',
   color: 'var(--color-text)',
   borderRadius: 'var(--radius-sm)',

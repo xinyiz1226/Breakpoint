@@ -1,6 +1,6 @@
 {
   "name": "breakpoint",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": "Xinyi Zhang",
   "description": "Tennis highlight extraction desktop app",
   "main": "dist-electron/main/main.js",

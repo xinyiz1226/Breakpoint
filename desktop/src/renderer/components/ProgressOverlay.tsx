@@ -11,7 +11,7 @@ export default function ProgressOverlay() {
     <div style={{
       position: 'fixed',
       inset: 0,
-      background: 'rgba(253, 251, 248, 0.92)',
+      background: 'rgba(245, 240, 232, 0.92)',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
@@ -21,8 +21,11 @@ export default function ProgressOverlay() {
     }}>
       <h2 style={{
         fontFamily: 'var(--font-display)',
-        fontSize: 24,
-        color: 'var(--color-terre)',
+        fontSize: 20,
+        fontWeight: 800,
+        color: 'var(--color-accent)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.08em',
       }}>
         Analyzing...
       </h2>
@@ -42,7 +45,7 @@ export default function ProgressOverlay() {
             <div style={{
               width: `${((step.step) / step.total) * 100}%`,
               height: '100%',
-              background: 'var(--color-terre)',
+              background: 'var(--color-accent)',
               transition: 'width 0.3s ease',
             }} />
           </div>
@@ -57,7 +60,7 @@ export default function ProgressOverlay() {
               <div style={{
                 width: `${(step.subCurrent / step.subTotal) * 100}%`,
                 height: '100%',
-                background: 'var(--color-terre)',
+                background: 'var(--color-accent)',
                 opacity: 0.5,
                 transition: 'width 0.15s ease',
               }} />
@@ -85,10 +88,14 @@ export default function ProgressOverlay() {
         style={{
           marginTop: 16,
           padding: '8px 24px',
-          fontSize: 13,
+          fontSize: 12,
+          fontFamily: 'var(--font-display)',
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase' as const,
           color: 'var(--color-text-secondary)',
           border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-md)',
+          borderRadius: 'var(--radius-sm)',
         }}
       >
         Cancel

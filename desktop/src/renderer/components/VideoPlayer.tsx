@@ -134,7 +134,7 @@ export default function VideoPlayer({ videoPath, onTimeUpdate, onDurationChange,
           <div style={{
             width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
             height: '100%',
-            background: 'var(--color-terre)',
+            background: 'var(--color-accent)',
             borderRadius: 3,
             transition: 'width 0.1s linear',
           }} />
