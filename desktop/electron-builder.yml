@@ -8,7 +8,6 @@ win:
     - nsis
     - msi
   icon: build/icon.ico
-  signAndEditExecutable: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

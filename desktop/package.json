@@ -1,6 +1,6 @@
 {
   "name": "breakpoint",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "author": "Xinyi Zhang",
   "description": "Tennis highlight extraction desktop app",
   "main": "dist-electron/main/main.js",
@@ -33,7 +33,10 @@
       "output": "release"
     },
     "win": {
-      "target": ["nsis", "msi"],
+      "target": [
+        "nsis",
+        "msi"
+      ],
       "icon": null
     },
     "nsis": {

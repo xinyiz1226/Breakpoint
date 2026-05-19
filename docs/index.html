@@ -564,14 +564,6 @@ nav {
   border-bottom: 1px solid rgba(255,255,255,0.2);
   border-right: 1px solid rgba(255,255,255,0.2);
 }
-.screenshot-plate {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: rgba(255,255,255,0.4);
-  letter-spacing: 0.04em;
-  position: absolute;
-  bottom: 16px; left: 32px;
-}
 .screenshot-placeholder {
   width: 100%;
   aspect-ratio: 16/9;
@@ -587,6 +579,15 @@ nav {
   gap: 12px;
 }
 .screenshot-placeholder svg { opacity: 0.3; }
+.screenshot-placeholder.with-image {
+  background-image: url('../Images/Welcome.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.screenshot-placeholder.with-image > * {
+  display: none;
+}
 
 .screenshots-tabs {
   display: flex;
@@ -992,22 +993,21 @@ footer p {
     </p>
     <div class="screenshots-wrap fade-up">
       <div class="screenshots-tabs" id="screenshotTabs">
-        <button class="active" data-tab="editor">
-          <span data-lang="en">Editor View</span>
-          <span data-lang="zh">编辑器视图</span>
-        </button>
-        <button data-tab="welcome">
+        <button class="active" data-tab="welcome">
           <span data-lang="en">Welcome Screen</span>
           <span data-lang="zh">欢迎界面</span>
         </button>
+        <button data-tab="editor">
+          <span data-lang="en">Editor View</span>
+          <span data-lang="zh">编辑器视图</span>
+        </button>
       </div>
       <div class="screenshot-main" style="margin-top: 20px;">
-        <div class="screenshot-placeholder" id="screenshotDisplay">
+        <div class="screenshot-placeholder with-image" id="screenshotDisplay">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polygon points="9.5 8 9.5 13 14.5 10.5" fill="currentColor" stroke="none"/></svg>
-          <span id="screenshotLabel" data-lang="en">Editor — Visual Timeline & Rally Browser</span>
-          <span id="screenshotLabelZh" data-lang="zh">编辑器——可视化时间线 & 回合浏览器</span>
+          <span id="screenshotLabel" data-lang="en">Welcome — File Selection & Quick Start</span>
+          <span id="screenshotLabelZh" data-lang="zh">欢迎界面——文件选择 & 快速开始</span>
         </div>
-        <div class="screenshot-plate">PLATE Nº 01 — BREAKPOINT DESKTOP APP</div>
       </div>
     </div>
   </div>
@@ -1123,15 +1123,15 @@ document.querySelectorAll('#screenshotTabs button').forEach(btn => {
     const tab = btn.getAttribute('data-tab');
     const labelEn = document.getElementById('screenshotLabel');
     const labelZh = document.getElementById('screenshotLabelZh');
-    const plate = document.querySelector('.screenshot-plate');
+    const screenshotDisplay = document.getElementById('screenshotDisplay');
     if (tab === 'editor') {
+      screenshotDisplay.classList.remove('with-image');
       labelEn.textContent = 'Editor — Visual Timeline & Rally Browser';
       labelZh.textContent = '编辑器——可视化时间线 & 回合浏览器';
-      plate.textContent = 'PLATE Nº 01 — BREAKPOINT DESKTOP APP';
     } else {
+      screenshotDisplay.classList.add('with-image');
       labelEn.textContent = 'Welcome — File Selection & Quick Start';
       labelZh.textContent = '欢迎界面——文件选择 & 快速开始';
-      plate.textContent = 'PLATE Nº 02 — BREAKPOINT WELCOME';
     }
   });
 });

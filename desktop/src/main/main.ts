@@ -18,6 +18,10 @@ process.env.VITE_PUBLIC = app.isPackaged
 let win: BrowserWindow | null = null
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.breakpoint.app')
+}
+
 function getWindowIconPath() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'icon.ico')
