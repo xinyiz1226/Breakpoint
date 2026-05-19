@@ -3,14 +3,21 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-engine = create_async_engine(settings.database_url, echo=False)
-async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
 
 class Base(DeclarativeBase):
     pass
 
 
+def _create_engine():
+    return create_async_engine(settings.database_url, echo=False)
+
+
+def _create_session_factory(eng):
+    return async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+
+
 async def get_db():
-    async with async_session() as session:
+    eng = _create_engine()
+    session_factory = _create_session_factory(eng)
+    async with session_factory() as session:
         yield session
