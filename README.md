@@ -6,7 +6,7 @@ Breakpoint analyzes full-length tennis videos using audio-based hit detection an
 
 **Website:** [xinyiz1226.github.io/Breakpoint](https://xinyiz1226.github.io/Breakpoint/)
 
-![Welcome Screen](Images/Welcome.jpg)
+![Welcome Screen](docs/Images/Welcome.jpg)
 
 ## Features
 
@@ -34,7 +34,7 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 4. **Edit** — Drag the trim handles to adjust start/end times, toggle segments on/off with checkboxes
 5. **Export** — Click "Export Highlights" to compile the selected segments into a single highlight `.mp4` video
 
-![Editor](Images/Editor.jpg)
+![Editor](docs/Images/Editor.jpg)
 
 ## Tech Stack
 
