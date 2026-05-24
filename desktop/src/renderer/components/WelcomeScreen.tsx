@@ -75,7 +75,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
             marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <span style={{ width: 28, height: 2, background: '#cc4e0e', display: 'inline-block' }} />
-            AI-Powered Tennis Editor
+            AI 网球精彩合集工具
           </div>
 
           <h1 style={{
@@ -87,7 +87,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
           </h1>
 
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', maxWidth: 300, lineHeight: 1.7 }}>
-            Intelligent highlight extraction from full-match recordings. Drop a video, get every rally — scored, clipped, and export-ready.
+            一键去除比赛和练习中的大段空白时间，只留下值得分享的精彩瞬间。
           </p>
 
           <div style={{
@@ -108,7 +108,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
             letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--color-text-secondary)',
             marginBottom: 20,
           }}>
-            Get Started
+            开始
           </div>
 
           <button onClick={handleOpen} style={{
@@ -133,10 +133,10 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
             </div>
             <div>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-text)' }}>
-                Open Video
+                导入新视频
               </div>
               <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>
-                Select a match recording to begin
+                选择比赛或练习视频，导入后自动开始处理
               </div>
             </div>
           </button>
@@ -151,7 +151,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
               background: dragOver ? 'rgba(204,78,14,0.04)' : 'transparent', transition: 'all 0.2s',
             }}
           >
-            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>or drag and drop a video file here</p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>或把视频文件拖到这里</p>
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(110,110,110,0.6)', marginTop: 4 }}>.mp4 · .mov · .avi · .mkv</p>
           </div>
 
@@ -162,7 +162,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
                 letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--color-text-secondary)',
                 marginBottom: 10,
               }}>
-                Recent
+                打开之前的视频
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {recent.slice(0, 5).map((p) => (
@@ -196,7 +196,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
           position: 'absolute', bottom: 20, left: 48, right: 48,
           display: 'flex', gap: 20, WebkitAppRegion: 'no-drag',
         } as CSSProperties}>
-          {[['Ctrl+O', 'Open file'], ['Ctrl+Q', 'Quit']].map(([key, label]) => (
+          {[['Ctrl+O', '导入视频'], ['Ctrl+Q', '退出']].map(([key, label]) => (
             <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--color-text-secondary)' }}>
               <kbd style={{
                 fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 5px',

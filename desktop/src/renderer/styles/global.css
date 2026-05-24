@@ -15,6 +15,18 @@ body {
   user-select: none;
 }
 
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background:
+    radial-gradient(ellipse 80% 60% at 18% 24%, rgba(180, 120, 60, 0.045), transparent),
+    radial-gradient(ellipse 70% 80% at 86% 78%, rgba(160, 90, 40, 0.035), transparent);
+  mix-blend-mode: multiply;
+}
+
 button {
   font-family: var(--font-body);
   cursor: pointer;

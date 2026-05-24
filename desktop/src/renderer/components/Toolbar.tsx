@@ -1,30 +1,27 @@
 import { useAppState } from '../state/AppState'
+import { getExportActionCopy, getReviewTaskSummary } from '../viewModels/flowCopy'
 
 interface Props {
   onExport: () => void
   onCancelExport: () => void
+  onOpenExportFile: (outputPath: string) => void
   filename: string
   exportProgress: number | null
-  exportMessage: string | null
+  exportResult: { status: 'complete' | 'error'; message: string; outputPath?: string } | null
 }
 
-export default function Toolbar({ onExport, onCancelExport, filename, exportProgress, exportMessage }: Props) {
+export default function Toolbar({ onExport, onCancelExport, onOpenExportFile, filename, exportProgress, exportResult }: Props) {
   const { state } = useAppState()
-  const includedCount = state.segments.filter((s) => s.included).length
-  const totalCount = state.segments.length
-  const totalDuration = state.segments
-    .filter((s) => s.included)
-    .reduce((sum, s) => sum + ((s.endAdjusted ?? s.end) - (s.startAdjusted ?? s.start)), 0)
-  const durMin = Math.floor(totalDuration / 60)
-  const durSec = Math.floor(totalDuration % 60)
+  const summary = getReviewTaskSummary(state.segments)
   const exporting = exportProgress !== null
+  const actionCopy = getExportActionCopy(summary.selectedCount, exporting)
 
   return (
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      gap: 8,
-      padding: '6px 16px',
+      gap: 14,
+      padding: '10px 16px',
       borderBottom: '1px solid var(--color-border)',
       background: 'var(--color-bg)',
       fontSize: 13,
@@ -42,35 +39,58 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
         }} />
       )}
 
-      <div style={{ flex: 1 }} />
-
-      <span style={{
-        fontSize: 12,
-        color: 'var(--color-text-secondary)',
-        fontFamily: 'var(--font-mono)',
-      }}>
-        {exporting ? `Exporting... ${Math.round((exportProgress ?? 0) * 100)}%` : filename}
-      </span>
-
-      <div style={{ flex: 1 }} />
-
-      {exportMessage && (
-        <span style={{
-          fontSize: 12,
-          color: exportMessage.includes('failed') ? 'var(--color-danger)' : 'var(--color-green)',
-          fontWeight: 500,
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 15,
+          fontWeight: 900,
+          letterSpacing: '-0.02em',
+          color: 'var(--color-green-dark)',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
         }}>
-          {exportMessage}
-        </span>
-      )}
+          {summary.instruction}
+        </div>
+        <div style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          color: 'var(--color-text-secondary)',
+          marginTop: 3,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          {filename} · 已选择 {summary.selectedCount}/{summary.totalCount} 个回合 · 合集约 {summary.selectedDurationLabel}
+        </div>
+      </div>
 
       <span style={{
         fontSize: 12,
         color: 'var(--color-text-secondary)',
         fontFamily: 'var(--font-mono)',
       }}>
-        {includedCount}/{totalCount} selected · {durMin}:{durSec.toString().padStart(2, '0')}
+        {exporting ? `${Math.round((exportProgress ?? 0) * 100)}%` : ''}
       </span>
+
+      {exportResult && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          color: exportResult.status === 'error' ? 'var(--color-danger)' : 'var(--color-green-light)',
+          fontWeight: 700,
+          fontSize: 12,
+          whiteSpace: 'nowrap',
+        }}>
+          <span>{exportResult.message}</span>
+          {exportResult.outputPath && (
+            <button onClick={() => onOpenExportFile(exportResult.outputPath!)} style={secondaryBtnStyle}>
+              打开导出文件
+            </button>
+          )}
+        </div>
+      )}
 
       {exporting ? (
         <button onClick={onCancelExport} style={{
@@ -80,17 +100,18 @@ export default function Toolbar({ onExport, onCancelExport, filename, exportProg
           padding: '4px 16px',
           borderRadius: 'var(--radius-sm)',
         }}>
-          Cancel
+          取消导出
         </button>
       ) : (
-        <button onClick={onExport} disabled={includedCount === 0} style={{
+        <button onClick={onExport} disabled={summary.selectedCount === 0} style={{
           ...btnStyle,
-          background: includedCount > 0 ? 'var(--color-accent)' : 'var(--color-border)',
+          background: summary.selectedCount > 0 ? 'var(--color-accent)' : 'var(--color-border)',
           color: '#fff',
-          padding: '4px 16px',
-          borderRadius: 'var(--radius-sm)',
+          padding: '9px 18px',
+          borderRadius: 999,
+          minWidth: 148,
         }}>
-          Export
+          {actionCopy}
         </button>
       )}
     </div>
@@ -106,4 +127,16 @@ const btnStyle: React.CSSProperties = {
   padding: '4px 10px',
   color: 'var(--color-text)',
   borderRadius: 'var(--radius-sm)',
+}
+
+const secondaryBtnStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-display)',
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: '0.04em',
+  color: 'var(--color-green-dark)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 999,
+  background: 'var(--color-surface)',
+  padding: '6px 12px',
 }

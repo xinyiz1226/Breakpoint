@@ -6,6 +6,7 @@
   "main": "dist-electron/main/main.js",
   "scripts": {
     "dev": "vite",
+    "test:renderer-flow": "node scripts/renderer-flow.test.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "package": "npm run build && electron-builder --config electron-builder.yml --win"

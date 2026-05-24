@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import Store from 'electron-store'
@@ -86,6 +86,10 @@ ipcMain.handle('check-resources', () => {
   ]
   const missing = checks.filter((c) => !fs.existsSync(c.path)).map((c) => c.label)
   return { ok: missing.length === 0, missing }
+})
+
+ipcMain.handle('open-path', async (_event, targetPath: string) => {
+  return shell.openPath(targetPath)
 })
 
 app.whenReady().then(() => {

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   getRecentProjects: () => ipcRenderer.invoke('get-recent-projects'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version') as Promise<string>,
   checkResources: () => ipcRenderer.invoke('check-resources') as Promise<{ ok: boolean; missing: string[] }>,
+  openPath: (targetPath: string) => ipcRenderer.invoke('open-path', targetPath) as Promise<string>,
   runAnalysis: (videoPath: string) => ipcRenderer.invoke('run-analysis', videoPath),
   cancelAnalysis: () => ipcRenderer.invoke('cancel-analysis'),
   cancelExport: () => ipcRenderer.invoke('cancel-export'),

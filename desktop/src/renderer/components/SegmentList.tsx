@@ -31,8 +31,16 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
 
   useEffect(() => {
-    if (selectedSegmentIndex != null && itemRefs.current[selectedSegmentIndex]) {
-      itemRefs.current[selectedSegmentIndex]!.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    const selectedEl = selectedSegmentIndex != null ? itemRefs.current[selectedSegmentIndex] : null
+    const scroller = selectedEl?.parentElement
+    if (selectedEl && scroller) {
+      const selectedTop = selectedEl.offsetTop
+      const selectedBottom = selectedTop + selectedEl.offsetHeight
+      if (selectedTop < scroller.scrollTop) {
+        scroller.scrollTo({ top: selectedTop - 8, behavior: 'smooth' })
+      } else if (selectedBottom > scroller.scrollTop + scroller.clientHeight) {
+        scroller.scrollTo({ top: selectedBottom - scroller.clientHeight + 8, behavior: 'smooth' })
+      }
     }
   }, [selectedSegmentIndex])
 
@@ -50,17 +58,21 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
-          padding: '5px 12px 3px 12px',
-          fontSize: 11,
-          color: 'var(--color-accent)',
+          gap: 8,
+          padding: '12px 12px 8px 12px',
           whiteSpace: 'nowrap',
         }}>
-          <span onClick={() => dispatch({ type: 'INCLUDE_ALL' })} style={{ cursor: 'pointer' }}>All</span>
-          <span style={{ color: 'var(--color-border)' }}>|</span>
-          <span onClick={() => dispatch({ type: 'EXCLUDE_ALL' })} style={{ cursor: 'pointer' }}>None</span>
-          <span style={{ color: 'var(--color-border)' }}>|</span>
-          <span onClick={() => dispatch({ type: 'RESET_ALL' })} style={{ cursor: 'pointer' }}>Reset</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 900, color: 'var(--color-green-dark)', letterSpacing: '-0.02em' }}>
+              确认回合片段
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 2 }}>
+              勾选保留，点击回合后微调开始和结束
+            </div>
+          </div>
+          <button onClick={() => dispatch({ type: 'INCLUDE_ALL' })} style={batchBtn}>全选</button>
+          <button onClick={() => dispatch({ type: 'EXCLUDE_ALL' })} style={batchBtn}>清空</button>
+          <button onClick={() => dispatch({ type: 'RESET_ALL' })} style={batchBtn}>重置</button>
         </div>
         <div style={{
           display: 'flex',
@@ -76,10 +88,10 @@ export default function SegmentList({ onSeek, onSeekAndPlay, currentTime }: Prop
         }}>
           <span style={{ width: 15, flexShrink: 0 }} />
           <span style={{ width: 28 }}>#</span>
-          <span style={{ width: 56 }}>Start</span>
-          <span style={{ width: 48 }}>Dur</span>
-          <span style={{ width: 36 }}>Hits</span>
-          <span>Score</span>
+          <span style={{ width: 56 }}>开始</span>
+          <span style={{ width: 48 }}>时长</span>
+          <span style={{ width: 36 }}>击球</span>
+          <span>强度</span>
         </div>
       </div>
       <div style={{
@@ -351,14 +363,14 @@ function TrimEditor({
 
         {isEdited && (
           <button onClick={handleReset} style={{ ...trimBtn, color: 'var(--color-danger)' }}>
-            Reset
+            重置
           </button>
         )}
       </div>
 
       {isEdited && (
         <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', opacity: 0.6 }}>
-          original: {formatTimePrecise(segment.start)} – {formatTimePrecise(segment.end)}
+          原始片段：{formatTimePrecise(segment.start)} – {formatTimePrecise(segment.end)}
         </div>
       )}
     </div>
@@ -373,4 +385,15 @@ const trimBtn: React.CSSProperties = {
   borderRadius: 'var(--radius-sm)',
   background: 'var(--color-bg)',
   fontFamily: 'var(--font-body)',
+}
+
+const batchBtn: React.CSSProperties = {
+  fontFamily: 'var(--font-display)',
+  fontSize: 11,
+  fontWeight: 800,
+  color: 'var(--color-green-dark)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 999,
+  background: 'var(--color-surface)',
+  padding: '5px 9px',
 }

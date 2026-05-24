@@ -35,20 +35,20 @@ export default function Timeline({ onSeek }: Props) {
         marginBottom: 4,
       }}>
         <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Timeline
+          整场比赛地图
         </span>
         <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--color-text-secondary)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: '#C75B2F', opacity: 0.7, display: 'inline-block' }} />
-            High
+            高光
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: '#5A8C6F', opacity: 0.7, display: 'inline-block' }} />
-            Mid
+            中等
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: '#A0937D', opacity: 0.7, display: 'inline-block' }} />
-            Low
+            普通
           </span>
         </div>
       </div>
@@ -110,11 +110,11 @@ function DetailBar({ segment, index }: { segment: Segment; index: number }) {
       <span>#{index + 1}</span>
       <span>{formatTime(segment.start)} – {formatTime(segment.end)}</span>
       <span>{(segment.end - segment.start).toFixed(1)}s</span>
-      <span>{segment.features.hit_count ?? '?'} hits</span>
+      <span>{segment.features.hit_count ?? '?'} 次击球</span>
       <span style={{ color: scoreColor(segment.score) }}>
-        score {segment.score.toFixed(3)}
+        强度 {segment.score.toFixed(3)}
       </span>
-      {!segment.included && <span style={{ color: 'var(--color-text-secondary)', opacity: 0.6 }}>excluded</span>}
+      {!segment.included && <span style={{ color: 'var(--color-text-secondary)', opacity: 0.6 }}>未选择</span>}
     </div>
   )
 }

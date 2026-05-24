@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { AppProvider, useAppState, applyAutoInclude } from './state/AppState'
 import WelcomeScreen from './components/WelcomeScreen'
 import VideoPlayer from './components/VideoPlayer'
-import ProgressOverlay from './components/ProgressOverlay'
+import AnalysisScreen from './components/AnalysisScreen'
 import Toolbar from './components/Toolbar'
 import Timeline from './components/Timeline'
 import SegmentList from './components/SegmentList'
+import { hasReusableAnalysisReport } from './analysisFlow'
 
 function AppInner() {
   const { state, dispatch } = useAppState()
@@ -86,7 +87,7 @@ function AppInner() {
     dispatch({ type: 'SET_VIDEO', path })
 
     const existing = await window.api.loadReport(path)
-    if (existing) {
+    if (hasReusableAnalysisReport(existing)) {
       dispatch({
         type: 'LOAD_SEGMENTS',
         segments: applyAutoInclude(existing.map((s) => ({ ...s, included: false }))),
@@ -96,20 +97,8 @@ function AppInner() {
     }
   }, [dispatch, startAnalysis])
 
-  const handleOpenNewVideo = useCallback(async () => {
-    const path = await window.api.openFileDialog()
-    if (path) handleVideoSelected(path)
-  }, [handleVideoSelected])
-
   const [exportProgress, setExportProgress] = useState<number | null>(null)
-  const [exportMessage, setExportMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (exportMessage) {
-      const timer = setTimeout(() => setExportMessage(null), 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [exportMessage])
+  const [exportResult, setExportResult] = useState<{ status: 'complete' | 'error'; message: string; outputPath?: string } | null>(null)
 
   const handleExport = useCallback(async () => {
     if (!state.videoPath) return
@@ -123,7 +112,7 @@ function AppInner() {
 
     const totalDuration = activeSegments.reduce((sum, s) => sum + (s.end - s.start), 0)
     setExportProgress(0)
-    setExportMessage(null)
+    setExportResult(null)
 
     const cleanup = window.api.onExportProgress((event) => {
       setExportProgress(Math.min(event.time / totalDuration, 1))
@@ -134,11 +123,17 @@ function AppInner() {
     setExportProgress(null)
 
     if (result.error) {
-      setExportMessage(`Export failed: ${result.error}`)
+      setExportResult({ status: 'error', message: `导出失败：${result.error}` })
     } else if (!result.cancelled) {
-      setExportMessage('Export complete')
+      setExportResult({ status: 'complete', message: '精彩合集已导出', outputPath: result.outputPath })
     }
   }, [state.videoPath, state.segments])
+
+  const handleReturnWelcome = useCallback(() => {
+    setExportProgress(null)
+    setExportResult(null)
+    dispatch({ type: 'CLOSE_VIDEO' })
+  }, [dispatch])
 
   if (resourceError) {
     return (
@@ -153,6 +148,21 @@ function AppInner() {
 
   if (!state.videoPath) {
     return <WelcomeScreen onVideoSelected={handleVideoSelected} />
+  }
+
+  if (state.analysisStatus === 'running' || state.analysisStatus === 'error') {
+    return (
+      <AnalysisScreen
+        step={state.currentStep}
+        errorMessage={state.errorMessage}
+        onCancel={() => {
+          window.api.cancelAnalysis()
+          dispatch({ type: 'ANALYSIS_ERROR', message: 'Cancelled' })
+        }}
+        onReturnWelcome={handleReturnWelcome}
+        onRetry={() => startAnalysis(state.videoPath!)}
+      />
+    )
   }
 
   return (
@@ -174,11 +184,11 @@ function AppInner() {
         </span>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button onClick={handleOpenNewVideo} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
-            Open Video
+          <button onClick={handleReturnWelcome} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
+            返回欢迎页
           </button>
-          <button onClick={() => startAnalysis(state.videoPath!)} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
-            Re-analyze
+          <button onClick={() => startAnalysis(state.videoPath!)} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
+            重新处理
           </button>
         </div>
       </div>
@@ -187,9 +197,10 @@ function AppInner() {
         <Toolbar
           onExport={handleExport}
           onCancelExport={() => window.api.cancelExport()}
+          onOpenExportFile={(outputPath) => window.api.openPath(outputPath)}
           filename={state.videoPath.split(/[\\/]/).pop() ?? ''}
           exportProgress={exportProgress}
-          exportMessage={exportMessage}
+          exportResult={exportResult}
         />
       )}
 
@@ -220,7 +231,6 @@ function AppInner() {
         <Timeline onSeek={doSeek} />
       )}
 
-      <ProgressOverlay />
     </div>
   )
 }

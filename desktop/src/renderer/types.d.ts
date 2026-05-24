@@ -29,6 +29,7 @@ declare global {
       getRecentProjects: () => Promise<string[]>
       getAppVersion: () => Promise<string>
       checkResources: () => Promise<{ ok: boolean; missing: string[] }>
+      openPath: (targetPath: string) => Promise<string>
       runAnalysis: (videoPath: string) => Promise<{ error?: string }>
       cancelAnalysis: () => Promise<void>
       cancelExport: () => Promise<void>
