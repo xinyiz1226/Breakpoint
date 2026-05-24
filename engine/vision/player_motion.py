@@ -15,12 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import json
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import cv2
 import numpy as np
 from pathlib import Path
 
 
 import tempfile
+_POOL_FACTORY = ProcessPoolExecutor
 CACHE_PATH = Path(tempfile.gettempdir()) / "breakpoint_rois_cache.json"
 
 
@@ -474,17 +478,38 @@ def analyze_motion(
 
     worker_args_list = _build_worker_args(video_path, segments, rois, target_height=target_height)
 
-    results: list[dict] = [None] * len(segments)  # type: ignore[list-item]
-    completed = 0
-    for args in worker_args_list:
-        seg_idx, result = _analyze_segment_motion(args)
-        results[seg_idx] = result
-        completed += 1
-        if completed % 10 == 0 or completed == len(segments):
-            print(f"  Motion analysis: {completed}/{len(segments)} segments")
-        if progress_callback:
-            progress_callback(completed, len(segments))
+    if _force_workers is not None:
+        n_workers = max(1, _force_workers)
+    else:
+        n_workers = min((os.cpu_count() or 2) // 2 or 1, len(segments))
+        if len(segments) < 4:
+            n_workers = 1
 
+    results: list[dict] = [None] * len(segments)  # type: ignore[list-item]
+
+    if n_workers <= 1:
+        completed = 0
+        for args in worker_args_list:
+            seg_idx, result = _analyze_segment_motion(args)
+            results[seg_idx] = result
+            completed += 1
+            if completed % 10 == 0 or completed == len(segments):
+                print(f"  Motion analysis: {completed}/{len(segments)} segments")
+            if progress_callback:
+                progress_callback(completed, len(segments))
+        return results
+
+    completed = 0
+    with _POOL_FACTORY(max_workers=n_workers) as pool:
+        futures = [pool.submit(_analyze_segment_motion, args) for args in worker_args_list]
+        for future in as_completed(futures):
+            seg_idx, result = future.result()
+            results[seg_idx] = result
+            completed += 1
+            if completed % 10 == 0 or completed == len(segments):
+                print(f"  Motion analysis: {completed}/{len(segments)} segments")
+            if progress_callback:
+                progress_callback(completed, len(segments))
     return results
 
 

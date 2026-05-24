@@ -69,3 +69,41 @@ def test_worker_function_is_importable_and_returns_same_result():
     worker_data = [r for _, r in worker_results]
 
     assert worker_data == serial_results
+
+
+def test_parallel_results_match_serial_and_progress_callback_count():
+    import concurrent.futures as _cf
+    from engine.vision import player_motion as pm
+
+    segments, rois = _prep_segments_and_rois()
+
+    serial_results = pm.analyze_motion(str(SAMPLE_VIDEO), segments, rois, _force_workers=1)
+
+    pool_calls = {"count": 0}
+    real_pool = _cf.ProcessPoolExecutor
+
+    def counting_pool(*a, **kw):
+        pool_calls["count"] += 1
+        return real_pool(*a, **kw)
+
+    pm._POOL_FACTORY = counting_pool
+    try:
+        progress_calls: list[tuple[int, int]] = []
+        parallel_results = pm.analyze_motion(
+            str(SAMPLE_VIDEO),
+            segments,
+            rois,
+            progress_callback=lambda done, total: progress_calls.append((done, total)),
+            _force_workers=2,
+        )
+    finally:
+        pm._POOL_FACTORY = real_pool
+
+    assert parallel_results == serial_results
+    assert pool_calls["count"] == 1, (
+        f"ProcessPoolExecutor should be used exactly once when _force_workers=2; "
+        f"got {pool_calls['count']}"
+    )
+    assert len(progress_calls) == len(segments)
+    assert progress_calls[-1] == (len(segments), len(segments))
+    assert all(total == len(segments) for _, total in progress_calls)
