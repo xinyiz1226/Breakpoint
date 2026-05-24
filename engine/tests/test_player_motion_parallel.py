@@ -12,7 +12,7 @@ SAMPLE_VIDEO = TESTS_DIR / "DJI_20260503142617_0532_D.MP4"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-pytestmark = pytest.mark.skipif(
+requires_sample_video = pytest.mark.skipif(
     not SAMPLE_VIDEO.exists(),
     reason="sample video not present",
 )
@@ -34,6 +34,7 @@ def _prep_segments_and_rois():
     return points[:6], rois
 
 
+@requires_sample_video
 def test_roi_cache_is_built_once_per_run(monkeypatch):
     from engine.vision import player_motion as pm
 
@@ -56,6 +57,7 @@ def test_roi_cache_is_built_once_per_run(monkeypatch):
     )
 
 
+@requires_sample_video
 def test_worker_function_is_importable_and_returns_same_result():
     from engine.vision import player_motion as pm
 
@@ -71,6 +73,7 @@ def test_worker_function_is_importable_and_returns_same_result():
     assert worker_data == serial_results
 
 
+@requires_sample_video
 def test_parallel_results_match_serial_and_progress_callback_count():
     import concurrent.futures as _cf
     from engine.vision import player_motion as pm
@@ -107,3 +110,16 @@ def test_parallel_results_match_serial_and_progress_callback_count():
     assert len(progress_calls) == len(segments)
     assert progress_calls[-1] == (len(segments), len(segments))
     assert all(total == len(segments) for _, total in progress_calls)
+
+
+def test_entry_point_calls_freeze_support():
+    entry = REPO_ROOT / "TennisHighlightAnalysis.py"
+    text = entry.read_text(encoding="utf-8")
+    assert "import multiprocessing" in text, "entry point must import multiprocessing"
+    assert "multiprocessing.freeze_support()" in text, (
+        "PyInstaller-bundled Windows builds must call multiprocessing.freeze_support() "
+        "before spawning workers; otherwise the engine re-runs itself per worker"
+    )
+    main_idx = text.index("def main():")
+    freeze_idx = text.index("multiprocessing.freeze_support()")
+    assert freeze_idx > main_idx, "freeze_support() must be called inside main()"
