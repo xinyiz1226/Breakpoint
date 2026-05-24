@@ -403,17 +403,7 @@ def _run_segment(cap, fps, scale, target_w, target_height, kernel,
     return {"player_motion_max": 0.0, "player_motion_var": 0.0}
 
 
-def analyze_motion(
-    video_path: str,
-    segments: list[dict],
-    rois: dict,
-    target_height: int = 540,
-    progress_callback=None,
-    _force_workers: int | None = None,
-) -> list[dict]:
-    if not segments:
-        return []
-
+def _build_worker_args(video_path, segments, rois, target_height=540):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
@@ -429,32 +419,72 @@ def analyze_motion(
     if scale < 1.0:
         near_roi = _scale_roi(rois["near"], scale)
         far_roi = _scale_roi(rois["far"], scale)
-        frame_shape = (target_height, target_w)
     else:
         near_roi = rois["near"]
         far_roi = rois["far"]
-        frame_shape = (orig_h, orig_w)
 
-    roi_cache = _build_roi_cache(frame_shape, near_roi, far_roi)
+    return [
+        {
+            "video_path": video_path,
+            "seg_idx": idx,
+            "seg": seg,
+            "near_roi": near_roi,
+            "far_roi": far_roi,
+            "scale": scale,
+            "target_w": target_w,
+            "target_h": target_height,
+            "orig_h": orig_h,
+            "orig_w": orig_w,
+            "kernel_size": kernel_size,
+            "sample_interval": 4,
+            "fps": fps,
+        }
+        for idx, seg in enumerate(segments)
+    ]
 
-    cap = cv2.VideoCapture(video_path)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    sample_interval = 4
 
-    results: list[dict] = []
-    for seg_idx, seg in enumerate(segments):
+def _analyze_segment_motion(args):
+    cap = cv2.VideoCapture(args["video_path"])
+    try:
+        if args["scale"] < 1.0:
+            frame_shape = (args["target_h"], args["target_w"])
+        else:
+            frame_shape = (args["orig_h"], args["orig_w"])
+        roi_cache = _build_roi_cache(frame_shape, args["near_roi"], args["far_roi"])
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (args["kernel_size"], args["kernel_size"]))
         result = _run_segment(
-            cap, fps, scale, target_w, target_height, kernel,
-            sample_interval, seg, roi_cache,
+            cap, args["fps"], args["scale"], args["target_w"], args["target_h"],
+            kernel, args["sample_interval"], args["seg"], roi_cache,
         )
-        results.append(result)
+    finally:
+        cap.release()
+    return (args["seg_idx"], result)
 
-        if (seg_idx + 1) % 10 == 0 or seg_idx == len(segments) - 1:
-            print(f"  Motion analysis: {seg_idx + 1}/{len(segments)} segments")
+
+def analyze_motion(
+    video_path: str,
+    segments: list[dict],
+    rois: dict,
+    target_height: int = 540,
+    progress_callback=None,
+    _force_workers: int | None = None,
+) -> list[dict]:
+    if not segments:
+        return []
+
+    worker_args_list = _build_worker_args(video_path, segments, rois, target_height=target_height)
+
+    results: list[dict] = [None] * len(segments)  # type: ignore[list-item]
+    completed = 0
+    for args in worker_args_list:
+        seg_idx, result = _analyze_segment_motion(args)
+        results[seg_idx] = result
+        completed += 1
+        if completed % 10 == 0 or completed == len(segments):
+            print(f"  Motion analysis: {completed}/{len(segments)} segments")
         if progress_callback:
-            progress_callback(seg_idx + 1, len(segments))
+            progress_callback(completed, len(segments))
 
-    cap.release()
     return results
 
 

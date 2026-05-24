@@ -54,3 +54,18 @@ def test_roi_cache_is_built_once_per_run(monkeypatch):
         f"_make_polygon_mask should be called exactly twice (near + far) per "
         f"analyze_motion run when masks are cached; got {calls['count']}"
     )
+
+
+def test_worker_function_is_importable_and_returns_same_result():
+    from engine.vision import player_motion as pm
+
+    segments, rois = _prep_segments_and_rois()
+
+    serial_results = pm.analyze_motion(str(SAMPLE_VIDEO), segments, rois, _force_workers=1)
+
+    worker_args_list = pm._build_worker_args(str(SAMPLE_VIDEO), segments, rois)
+    worker_results = [pm._analyze_segment_motion(args) for args in worker_args_list]
+    worker_results.sort(key=lambda pair: pair[0])
+    worker_data = [r for _, r in worker_results]
+
+    assert worker_data == serial_results
