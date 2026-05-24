@@ -8,6 +8,7 @@ export default function AnalysisCourtVisual() {
     <div style={{
       position: 'relative',
       minHeight: 0,
+      width: '100%',
       height: '100%',
       borderRadius: 12,
       overflow: 'hidden',
@@ -36,21 +37,6 @@ export default function AnalysisCourtVisual() {
         boxShadow: '0 0 0 10px rgba(204,78,14,0.12)',
         animation: 'breakpoint-scan 2.8s ease-in-out infinite alternate',
       }} />
-      <div style={{
-        position: 'absolute',
-        right: 58,
-        top: 58,
-        maxWidth: 260,
-        padding: '14px 16px',
-        border: '1px solid rgba(255,255,255,0.18)',
-        borderRadius: 8,
-        background: 'rgba(3,54,41,0.82)',
-        color: '#fff',
-        backdropFilter: 'blur(8px)',
-      }}>
-        <strong style={{ display: 'block', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.06em' }}>正在筛选精彩片段</strong>
-        <span style={{ display: 'block', marginTop: 6, opacity: 0.62, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.05em' }}>片段 1 / 10 · 当前 58%</span>
-      </div>
       <div style={{
         position: 'absolute',
         left: 58,

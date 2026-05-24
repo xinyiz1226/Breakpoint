@@ -25,11 +25,11 @@ export default function AnalysisProgressPanel({ step, errorMessage, onCancel, on
 
   if (errorMessage) {
     return (
-      <div style={{ padding: '42px 12px' }}>
+      <div style={{ padding: 'clamp(20px, 3vw, 42px) clamp(8px, 1.4vw, 16px)' }}>
         <div style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-display)', fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 16 }}>处理失败</div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 48, lineHeight: 0.98, letterSpacing: '-0.05em', margin: '0 0 16px', color: 'var(--color-text)' }}>分析没有完成</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 4vw, 48px)', lineHeight: 0.98, letterSpacing: '-0.045em', margin: '0 0 16px', color: 'var(--color-text)' }}>分析没有完成</h1>
         <p style={{ color: 'var(--color-text-secondary)', lineHeight: 1.7, marginBottom: 24 }}>{errorMessage}</p>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button onClick={onRetry} style={{ padding: '10px 18px', borderRadius: 999, background: 'var(--color-accent)', color: '#fff', border: 'none', fontWeight: 800 }}>重新处理</button>
           <button onClick={onReturnWelcome} style={{ padding: '10px 18px', borderRadius: 999, background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', fontWeight: 800 }}>返回欢迎页</button>
         </div>
@@ -38,13 +38,13 @@ export default function AnalysisProgressPanel({ step, errorMessage, onCancel, on
   }
 
   return (
-    <div style={{ padding: '42px 12px' }}>
+    <div style={{ padding: 'clamp(20px, 3vw, 42px) clamp(8px, 1.4vw, 16px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--color-accent)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 16 }}>
         <span style={{ width: 30, height: 2, background: 'var(--color-accent)' }} />
         自动开始
       </div>
-      <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 56, lineHeight: 0.96, letterSpacing: '-0.055em', margin: '0 0 16px', color: 'var(--color-text)' }}>正在用 AI<br />分析整场视频</h1>
-      <p style={{ color: 'var(--color-text-secondary)', lineHeight: 1.7, margin: '0 0 26px', maxWidth: 560 }}>新视频导入后会自动开始处理。Breakpoint 会先读取整场比赛，再逐段筛选值得保留的精彩瞬间。</p>
+      <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(28px, 4.4vw, 56px)', lineHeight: 0.96, letterSpacing: '-0.045em', margin: '0 0 16px', color: 'var(--color-text)' }}>正在用 AI<br />分析整场视频</h1>
+      <p style={{ color: 'var(--color-text-secondary)', lineHeight: 1.7, margin: '0 0 26px', maxWidth: 560, fontSize: 'clamp(12px, 1.05vw, 14px)' }}>新视频导入后会自动开始处理。Breakpoint 会先读取整场比赛，再逐段筛选值得保留的精彩瞬间。</p>
       <div style={{ border: '1px solid var(--color-border)', borderRadius: 12, padding: 22, background: 'rgba(250,247,242,0.72)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 12, marginBottom: 12, color: 'var(--color-text-secondary)' }}>
           <span>{view.stageLabel}{view.subProgress ? ` · ${view.subProgress.label}` : ''}</span>
