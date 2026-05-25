@@ -45,6 +45,7 @@ type Action =
   | { type: 'INCLUDE_ALL' }
   | { type: 'EXCLUDE_ALL' }
   | { type: 'RESET_ALL' }
+  | { type: 'RESTORE_RECOMMENDED' }
   | { type: 'ADJUST_SEGMENT'; index: number; start?: number | undefined; end?: number | undefined }
   | { type: 'SET_DURATION'; duration: number }
   | { type: 'LOAD_SEGMENTS'; segments: Segment[] }
@@ -91,6 +92,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, segments: state.segments.map((s) => ({ ...s, included: false })) }
     case 'RESET_ALL':
       return { ...state, segments: applyAutoInclude(state.segments.map((s) => ({ ...s, startAdjusted: undefined, endAdjusted: undefined }))) }
+    case 'RESTORE_RECOMMENDED':
+      return { ...state, segments: state.segments.map((s) => ({ ...s, included: s.score > INCLUDE_THRESHOLD })) }
     case 'ADJUST_SEGMENT':
       return {
         ...state,
