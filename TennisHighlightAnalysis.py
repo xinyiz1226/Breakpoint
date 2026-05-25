@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import multiprocessing
 import sys
 from pathlib import Path
@@ -9,7 +9,7 @@ from engine.export.compile import compile_highlights
 
 def main():
     multiprocessing.freeze_support()
-    parser = argparse.ArgumentParser(description="Tennis Highlight Analysis — end-to-end pipeline")
+    parser = argparse.ArgumentParser(description="Tennis Highlight Analysis - end-to-end pipeline")
     parser.add_argument("video", help="Path to input video file")
     parser.add_argument("-o", "--output", default=None, help="Output directory (default: output_<video_stem>)")
     parser.add_argument("--silence-gap", type=float, default=6.0, help="Silence gap threshold (seconds)")
@@ -51,3 +51,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
