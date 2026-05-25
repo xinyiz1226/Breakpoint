@@ -28,6 +28,9 @@ const {
   getReviewTaskSummary,
   getExportActionCopy,
   formatClipDuration,
+  getRallyTitle,
+  getSegmentTone,
+  getAdjustedTimeRange,
 } = loadTsModule(path.join('src', 'renderer', 'viewModels', 'flowCopy.ts'))
 
 const {
@@ -80,6 +83,65 @@ assert.equal(getExportActionCopy(0, false), '选择回合后导出')
 assert.equal(getExportActionCopy(3, false), '导出已选择的回合')
 assert.equal(getExportActionCopy(3, true), '正在导出 3 个回合')
 assert.equal(formatClipDuration(61.8), '1:01')
+const highMultiHitSegment = {
+  index: 7,
+  start: 1463,
+  end: 1484,
+  score: 2.6,
+  included: true,
+  features: { hit_count: 18 },
+}
+assert.equal(getRallyTitle(highMultiHitSegment), '多拍高强度回合 #08')
+assert.equal(getSegmentTone(highMultiHitSegment), 'highlight')
+assert.deepEqual(plain(getAdjustedTimeRange({
+  index: 2,
+  start: 70,
+  end: 95,
+  score: 2.1,
+  included: true,
+  startAdjusted: 72.2,
+  endAdjusted: 93.7,
+  features: {},
+})), {
+  start: 72.2,
+  end: 93.7,
+  duration: 21.5,
+  label: '1:12 - 1:33',
+})
+
+assert.equal(getRallyTitle({
+  index: 3,
+  start: 20,
+  end: 25,
+  score: 1.8,
+  included: true,
+  features: { hit_count: 5 },
+}), '短回合 #04')
+assert.equal(getSegmentTone({
+  index: 3,
+  start: 20,
+  end: 25,
+  score: 1.8,
+  included: true,
+  features: { hit_count: 5 },
+}), 'keep')
+
+assert.equal(getRallyTitle({
+  index: 4,
+  start: 40,
+  end: 55,
+  score: 1.1,
+  included: false,
+  features: {},
+}), '普通回合 #05')
+assert.equal(getSegmentTone({
+  index: 4,
+  start: 40,
+  end: 55,
+  score: 1.1,
+  included: false,
+  features: {},
+}), 'discarded')
 assert.equal(hasReusableAnalysisReport(null), false)
 assert.equal(hasReusableAnalysisReport([]), false)
 assert.equal(hasReusableAnalysisReport([{ index: 1, start: 10, end: 20, score: 2, features: {} }]), true)

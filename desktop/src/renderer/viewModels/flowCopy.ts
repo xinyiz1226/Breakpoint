@@ -129,3 +129,44 @@ export function getExportActionCopy(selectedCount: number, exporting: boolean): 
   if (selectedCount === 0) return '选择回合后导出'
   return '导出已选择的回合'
 }
+
+export type SegmentTone = 'highlight' | 'keep' | 'discarded'
+
+function formatSegmentNumber(index: number): string {
+  return `#${String(index + 1).padStart(2, '0')}`
+}
+
+export function getAdjustedTimeRange(segment: Pick<Segment, 'start' | 'end' | 'startAdjusted' | 'endAdjusted'>) {
+  const start = segment.startAdjusted ?? segment.start
+  const end = segment.endAdjusted ?? segment.end
+  const duration = Math.max(end - start, 0)
+  return {
+    start,
+    end,
+    duration,
+    label: `${formatClipDuration(start)} - ${formatClipDuration(end)}`,
+  }
+}
+
+export function getSegmentTone(segment: Pick<Segment, 'score' | 'included'>): SegmentTone {
+  if (!segment.included) return 'discarded'
+  if (segment.score > 2.3) return 'highlight'
+  return 'keep'
+}
+
+export function getRallyTitle(segment: Pick<Segment, 'index' | 'start' | 'end' | 'score' | 'features'>): string {
+  const duration = Math.max(segment.end - segment.start, 0)
+  const hitCount = segment.features.hit_count ?? 0
+  const parts: string[] = []
+
+  if (hitCount >= 14) parts.push('多拍')
+  if (segment.score > 2.3) parts.push('高强度')
+  if (duration <= 8) parts.push('短')
+
+  if (parts.length > 0) {
+    return `${parts.join('')}回合 ${formatSegmentNumber(segment.index)}`
+  }
+
+  const fallback = segment.score > 1.7 ? '推荐回合' : '普通回合'
+  return `${fallback} ${formatSegmentNumber(segment.index)}`
+}
