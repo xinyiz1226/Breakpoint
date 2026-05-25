@@ -13,12 +13,26 @@ function loadTsModule(relativePath) {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2020,
+      jsx: ts.JsxEmit.ReactJSX,
       strict: true,
     },
   }).outputText
 
   const module = { exports: {} }
-  vm.runInNewContext(compiled, { module, exports: module.exports }, { filename: sourcePath })
+  const require = (specifier) => {
+    if (specifier === 'react') {
+      return {
+        createContext: () => ({}),
+        useContext: () => null,
+        useReducer: () => [null, () => {}],
+      }
+    }
+    if (specifier === 'react/jsx-runtime') {
+      return { jsx: () => ({}), jsxs: () => ({}), Fragment: Symbol('Fragment') }
+    }
+    throw new Error(`Unexpected test module import: ${specifier}`)
+  }
+  vm.runInNewContext(compiled, { module, exports: module.exports, require }, { filename: sourcePath })
   return module.exports
 }
 
@@ -36,6 +50,11 @@ const {
 const {
   hasReusableAnalysisReport,
 } = loadTsModule(path.join('src', 'renderer', 'analysisFlow.ts'))
+
+const {
+  MIN_SEGMENT_DURATION,
+  reducer,
+} = loadTsModule(path.join('src', 'renderer', 'state', 'AppState.tsx'))
 
 const plain = (value) => JSON.parse(JSON.stringify(value))
 
@@ -175,3 +194,45 @@ assert.match(appStateSource, /RESTORE_RECOMMENDED/)
 assert.match(appStateSource, /case 'RESTORE_RECOMMENDED'/)
 assert.match(appStateSource, /included: s\.score > INCLUDE_THRESHOLD/)
 assert.doesNotMatch(appStateSource, /case 'RESTORE_RECOMMENDED':[\s\S]*startAdjusted: undefined/)
+assert.equal(MIN_SEGMENT_DURATION, 0.5)
+const reducerClampState = {
+  videoPath: null,
+  analysisStatus: 'done',
+  currentStep: null,
+  errorMessage: null,
+  selectedSegmentIndex: null,
+  videoDuration: 0,
+  segments: [
+    { index: 0, start: 10, end: 12, score: 2, included: true, features: {} },
+    { index: 1, start: 20, end: 24, score: 2, included: true, features: {}, startAdjusted: 21, endAdjusted: 23 },
+  ],
+}
+assert.deepEqual(plain(reducer(reducerClampState, { type: 'ADJUST_SEGMENT', index: 0, start: 11.8 }).segments[0]), {
+  index: 0,
+  start: 10,
+  end: 12,
+  score: 2,
+  included: true,
+  features: {},
+  startAdjusted: 11.5,
+})
+assert.deepEqual(plain(reducer(reducerClampState, { type: 'ADJUST_SEGMENT', index: 1, end: 21.2 }).segments[1]), {
+  index: 1,
+  start: 20,
+  end: 24,
+  score: 2,
+  included: true,
+  features: {},
+  startAdjusted: 21,
+  endAdjusted: 21.5,
+})
+assert.deepEqual(plain(reducer(reducerClampState, { type: 'RESTORE_RECOMMENDED' }).segments[1]), {
+  index: 1,
+  start: 20,
+  end: 24,
+  score: 2,
+  included: true,
+  features: {},
+  startAdjusted: 21,
+  endAdjusted: 23,
+})

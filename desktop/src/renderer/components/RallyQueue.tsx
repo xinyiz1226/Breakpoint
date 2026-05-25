@@ -46,6 +46,7 @@ export default function RallyQueue({
   const { segments, selectedSegmentIndex } = state
   const summary = getReviewTaskSummary(segments)
   const exporting = exportProgress !== null
+  const exportProgressRatio = Math.max(0, Math.min(exportProgress ?? 0, 1))
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
 
   useEffect(() => {
@@ -105,7 +106,7 @@ export default function RallyQueue({
       <div style={exportBoxStyle}>
         {exporting && (
           <div style={progressTrackStyle}>
-            <div style={{ ...progressFillStyle, width: `${Math.max(0, Math.min(exportProgress ?? 0, 1)) * 100}%` }} />
+            <div style={{ ...progressFillStyle, width: `${exportProgressRatio * 100}%` }} />
           </div>
         )}
         <p style={exportSummaryStyle}>
@@ -221,6 +222,7 @@ function TrimEditor({
   const rangeEnd = segment.end + padding
   const rangeWidth = Math.max(rangeEnd - rangeStart, minDuration)
   const barRef = useRef<HTMLDivElement>(null)
+  const dragCleanupRef = useRef<(() => void) | null>(null)
   const [dragging, setDragging] = useState<'start' | 'end' | null>(null)
 
   const timeToPercent = useCallback((time: number) => ((time - rangeStart) / rangeWidth) * 100, [rangeStart, rangeWidth])
@@ -240,13 +242,27 @@ function TrimEditor({
     onSeek(next)
   }, [clampEnd, dispatch, index, onSeek])
 
+  const cleanupDrag = useCallback(() => {
+    dragCleanupRef.current?.()
+    dragCleanupRef.current = null
+    setDragging(null)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.()
+      dragCleanupRef.current = null
+    }
+  }, [])
+
   const handleMouseDown = useCallback((edge: 'start' | 'end') => (event: React.MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
-    setDragging(edge)
     const bar = barRef.current
     if (!bar) return
 
+    cleanupDrag()
+    setDragging(edge)
     const onMove = (moveEvent: MouseEvent) => {
       const rect = bar.getBoundingClientRect()
       const percent = Math.max(0, Math.min(100, ((moveEvent.clientX - rect.left) / rect.width) * 100))
@@ -256,14 +272,16 @@ function TrimEditor({
     }
 
     const onUp = () => {
-      setDragging(null)
+      cleanupDrag()
+    }
+
+    dragCleanupRef.current = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [percentToTime, updateEnd, updateStart])
+  }, [cleanupDrag, percentToTime, updateEnd, updateStart])
 
   const handleReset = () => {
     dispatch({ type: 'ADJUST_SEGMENT', index, start: undefined, end: undefined })

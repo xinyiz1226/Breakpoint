@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, ReactNode } from 'react'
 
 const INCLUDE_THRESHOLD = 1.7
+const MIN_SEGMENT_DURATION = 0.5
 
 interface Segment {
   index: number
@@ -54,6 +55,29 @@ function applyAutoInclude(segments: Segment[]): Segment[] {
   return segments.map((s) => ({ ...s, included: s.score > INCLUDE_THRESHOLD }))
 }
 
+function hasActionValue(action: Action, key: 'start' | 'end'): action is Extract<Action, { type: 'ADJUST_SEGMENT' }> {
+  return action.type === 'ADJUST_SEGMENT' && Object.prototype.hasOwnProperty.call(action, key)
+}
+
+function applySegmentAdjustment(segment: Segment, action: Extract<Action, { type: 'ADJUST_SEGMENT' }>): Segment {
+  const hasStart = hasActionValue(action, 'start')
+  const hasEnd = hasActionValue(action, 'end')
+  let startAdjusted = hasStart ? action.start : segment.startAdjusted
+  let endAdjusted = hasEnd ? action.end : segment.endAdjusted
+  const effectiveStart = startAdjusted ?? segment.start
+  const effectiveEnd = endAdjusted ?? segment.end
+
+  if (effectiveEnd - effectiveStart < MIN_SEGMENT_DURATION) {
+    if (hasStart && !hasEnd) {
+      startAdjusted = effectiveEnd - MIN_SEGMENT_DURATION
+    } else {
+      endAdjusted = effectiveStart + MIN_SEGMENT_DURATION
+    }
+  }
+
+  return { ...segment, startAdjusted, endAdjusted }
+}
+
 const initialState: AppState = {
   videoPath: null,
   analysisStatus: 'idle',
@@ -99,11 +123,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         segments: state.segments.map((s, i) =>
           i === action.index
-            ? {
-                ...s,
-                startAdjusted: 'start' in action ? action.start : s.startAdjusted,
-                endAdjusted: 'end' in action ? action.end : s.endAdjusted,
-              }
+            ? applySegmentAdjustment(s, action)
             : s
         ),
       }
@@ -129,5 +149,5 @@ export function useAppState() {
   return ctx
 }
 
-export { INCLUDE_THRESHOLD, applyAutoInclude }
+export { INCLUDE_THRESHOLD, MIN_SEGMENT_DURATION, applyAutoInclude, reducer }
 export type { Segment, ProgressStep, AppState, Action }
