@@ -129,6 +129,11 @@ function AppInner() {
   }, [state.videoPath, state.segments])
 
   const handleReturnWelcome = useCallback(() => {
+    window.api.cancelAnalysis()
+    setSeekTarget(null)
+    setSeekCounter(0)
+    setCurrentTime(0)
+    setAutoPlay(false)
     setExportProgress(null)
     setExportResult(null)
     dispatch({ type: 'CLOSE_VIDEO' })
