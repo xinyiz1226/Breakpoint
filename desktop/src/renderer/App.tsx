@@ -3,9 +3,8 @@ import { AppProvider, useAppState, applyAutoInclude } from './state/AppState'
 import WelcomeScreen from './components/WelcomeScreen'
 import VideoPlayer from './components/VideoPlayer'
 import AnalysisScreen from './components/AnalysisScreen'
-import Toolbar from './components/Toolbar'
-import Timeline from './components/Timeline'
-import SegmentList from './components/SegmentList'
+import RallyQueue from './components/RallyQueue'
+import MatchMap from './components/MatchMap'
 import { hasReusableAnalysisReport } from './analysisFlow'
 
 function AppInner() {
@@ -166,73 +165,76 @@ function AppInner() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--color-bg)' }}>
       <div style={{
-        padding: '8px 16px',
+        padding: '4px 16px',
         fontFamily: 'var(--font-mono)',
-        fontSize: 13,
+        fontSize: 12,
         color: 'var(--color-text-secondary)',
-        borderBottom: '1px solid var(--color-border)',
+        borderBottom: '1px solid #e5d2bd',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text)' }}>
-          <span style={{ width: 8, height: 8, background: 'var(--color-accent)', borderRadius: '50%', display: 'inline-block' }} />
-          BREAKPOINT
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 900, letterSpacing: '-0.02em', color: 'var(--color-text)' }}>
+          Breakpoint · 确认回合片段
         </span>
-        <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button onClick={handleReturnWelcome} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
-            返回欢迎页
-          </button>
-          <button onClick={() => startAnalysis(state.videoPath!)} style={{ fontSize: 11, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--color-text-secondary)', padding: '2px 8px' }}>
-            重新处理
-          </button>
+          <button onClick={handleReturnWelcome} style={topBtnStyle}>返回欢迎页</button>
+          <button onClick={() => startAnalysis(state.videoPath!)} style={topBtnStyle}>重新处理</button>
         </div>
       </div>
 
-      {state.analysisStatus === 'done' && (
-        <Toolbar
-          onExport={handleExport}
-          onCancelExport={() => window.api.cancelExport()}
-          onOpenExportFile={(outputPath) => window.api.openPath(outputPath)}
-          filename={state.videoPath.split(/[\\/]/).pop() ?? ''}
-          exportProgress={exportProgress}
-          exportResult={exportResult}
-        />
-      )}
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', minHeight: 0 }}>
+        <main style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto', minWidth: 0, minHeight: 0 }}>
+          <section style={{ margin: 16, marginBottom: 16, borderRadius: 9, overflow: 'hidden', background: '#063b2d', minHeight: 0 }}>
+            <VideoPlayer
+              videoPath={state.videoPath}
+              seekTo={seekTarget}
+              seekKey={seekCounter}
+              autoPlay={autoPlay}
+              pauseAt={state.selectedSegmentIndex != null ? (() => {
+                const seg = state.segments[state.selectedSegmentIndex!]
+                return seg.endAdjusted ?? seg.end
+              })() : null}
+              onTimeUpdate={(t) => setCurrentTime(t)}
+              onDurationChange={(d) => dispatch({ type: 'SET_DURATION', duration: d })}
+            />
+          </section>
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <div style={{ flex: 2, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <VideoPlayer
-            videoPath={state.videoPath}
-            seekTo={seekTarget}
-            seekKey={seekCounter}
-            autoPlay={autoPlay}
-            pauseAt={state.selectedSegmentIndex != null ? (() => {
-              const seg = state.segments[state.selectedSegmentIndex!]
-              return seg.endAdjusted ?? seg.end
-            })() : null}
-            onTimeUpdate={(t) => setCurrentTime(t)}
-            onDurationChange={(d) => dispatch({ type: 'SET_DURATION', duration: d })}
-          />
-        </div>
+          {state.analysisStatus === 'done' && (
+            <MatchMap onSeek={doSeek} />
+          )}
+        </main>
 
         {state.analysisStatus === 'done' && (
-          <div style={{ flex: 1, minWidth: 240, maxWidth: 400, borderLeft: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <SegmentList onSeek={doSeek} onSeekAndPlay={doSeekAndPlay} currentTime={currentTime} />
-          </div>
+          <RallyQueue
+            onSeek={doSeek}
+            onSeekAndPlay={doSeekAndPlay}
+            currentTime={currentTime}
+            onExport={handleExport}
+            onCancelExport={() => window.api.cancelExport()}
+            onOpenExportFile={(outputPath) => window.api.openPath(outputPath)}
+            exportProgress={exportProgress}
+            exportResult={exportResult}
+          />
         )}
       </div>
-
-      {state.analysisStatus === 'done' && (
-        <Timeline onSeek={doSeek} />
-      )}
-
     </div>
   )
+}
+
+const topBtnStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontFamily: 'var(--font-display)',
+  fontWeight: 800,
+  letterSpacing: '0.04em',
+  color: 'var(--color-green-dark)',
+  padding: '3px 9px',
+  border: '1px solid #e1cbb5',
+  borderRadius: 999,
+  background: 'var(--color-surface)',
 }
 
 export default function App() {
