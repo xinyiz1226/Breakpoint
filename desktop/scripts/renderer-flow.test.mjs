@@ -185,6 +185,11 @@ const analysisScreenSource = fs.readFileSync(path.join(root, 'src', 'renderer', 
 assert.match(analysisScreenSource, /AnalysisCourtVisual/)
 assert.match(analysisScreenSource, /AnalysisProgressPanel/)
 
+const matchMapSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'MatchMap.tsx'), 'utf8')
+assert.match(matchMapSource, /const safeDuration = Math\.max\(videoDuration, 1\)/)
+assert.match(matchMapSource, /key=\{originalIndex\}/)
+assert.doesNotMatch(matchMapSource, /\/ videoDuration\) \* 100/)
+
 const appSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'App.tsx'), 'utf8')
 assert.match(appSource, /<AnalysisScreen/)
 assert.doesNotMatch(appSource, /<ProgressOverlay/)

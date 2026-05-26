@@ -31,6 +31,7 @@ export default function MatchMap({ onSeek }: Props) {
   }, [recommendedOnly, segments])
 
   if (videoDuration <= 0 || segments.length === 0) return null
+  const safeDuration = Math.max(videoDuration, 1)
 
   return (
     <section style={mapShellStyle}>
@@ -49,14 +50,14 @@ export default function MatchMap({ onSeek }: Props) {
       <div style={barViewportStyle}>
         {visibleSegments.map(({ segment, originalIndex }) => {
           const range = getAdjustedTimeRange(segment)
-          const left = (segment.start / videoDuration) * 100
-          const width = Math.max(((segment.end - segment.start) / videoDuration) * 100, 0.55)
+          const left = (segment.start / safeDuration) * 100
+          const width = Math.max(((segment.end - segment.start) / safeDuration) * 100, 0.55)
           const isSelected = originalIndex === selectedSegmentIndex
           const tone = getSegmentTone(segment)
 
           return (
             <button
-              key={`${segment.index}-${originalIndex}`}
+              key={originalIndex}
               title={`#${String(originalIndex + 1).padStart(2, '0')} · ${range.label} · 强度 ${segment.score.toFixed(2)}`}
               onClick={() => {
                 dispatch({ type: 'SELECT_SEGMENT', index: originalIndex })
