@@ -9,7 +9,8 @@
     "test:renderer-flow": "node scripts/renderer-flow.test.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "package": "npm run build && electron-builder --config electron-builder.yml --win"
+    "package": "npm run build && electron-builder --config electron-builder.yml --win",
+    "package:msi": "python scripts/package.py"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
