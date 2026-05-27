@@ -10,9 +10,11 @@ interface AnalysisStageView {
   subProgress: { current: number; total: number; label: string } | null
 }
 
+const ANALYSIS_STAGE_COUNT = 4
+
 export function getAnalysisStageNumber(step: ProgressStep | null): number {
   if (!step) return 0
-  return Math.min(Math.max(Math.floor(step.step), 1), 4)
+  return Math.min(Math.max(Math.floor(step.step), 1), ANALYSIS_STAGE_COUNT)
 }
 
 interface AnalysisVisualBar {
@@ -36,7 +38,7 @@ const VISUAL_BAR_HEIGHTS = [18, 26, 16, 34, 22, 30, 20, 38, 24, 32, 18, 28]
 
 export function getAnalysisVisualState(step: ProgressStep | null, copy: Copy): AnalysisVisualState {
   const activeStage = getAnalysisStageNumber(step)
-  const total = Math.max(step?.total ?? 4, 1)
+  const total = Math.max(step?.total ?? ANALYSIS_STAGE_COUNT, 1)
   const progress = Math.min(Math.max((step?.step ?? 0) / total, 0), 1)
   const segmentTotal = Math.max(step?.subTotal ?? 12, 1)
   const activeSegment = Math.min(Math.max(step?.subCurrent ?? 1, 1), segmentTotal)
@@ -68,7 +70,7 @@ export function getAnalysisStageView(step: ProgressStep | null, copy: Copy): Ana
       title: copy.flow.waitingTitle,
       detail: copy.flow.waitingDetail,
       stageLabel: copy.flow.waitingStageLabel,
-      progressLabel: copy.flow.progressLabel(0, 4),
+      progressLabel: copy.flow.progressLabel(0, ANALYSIS_STAGE_COUNT),
       progress: 0,
       subProgress: null,
     }
@@ -164,10 +166,10 @@ export function getRallyTitle(
   if (duration <= 8) parts.push(copy.flow.rallyTitle.short)
 
   if (parts.length > 0) {
-    const joined = parts.join(copy.flow.rallyTitle.suffix === '回合' ? '' : ' ')
-    return copy.flow.rallyTitle.suffix === '回合'
-      ? `${joined}${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
-      : `${joined} ${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
+    const joined = parts.join(copy.flow.rallyTitle.joinPartsWithSpace ? ' ' : '')
+    return copy.flow.rallyTitle.joinPartsWithSpace
+      ? `${joined} ${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
+      : `${joined}${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
   }
 
   const fallback = segment.score > 1.7 ? copy.flow.rallyTitle.recommended : copy.flow.rallyTitle.regular

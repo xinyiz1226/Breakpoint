@@ -22,6 +22,7 @@ interface RallyTitleCopy {
   highIntensity: string
   short: string
   suffix: string
+  joinPartsWithSpace: boolean
   recommended: string
   regular: string
 }
@@ -242,6 +243,7 @@ export const COPY: Record<Language, Copy> = {
         highIntensity: 'High-intensity',
         short: 'Short',
         suffix: 'rally',
+        joinPartsWithSpace: true,
         recommended: 'Recommended rally',
         regular: 'Regular rally',
       },
@@ -360,6 +362,7 @@ export const COPY: Record<Language, Copy> = {
         highIntensity: '高强度',
         short: '短',
         suffix: '回合',
+        joinPartsWithSpace: false,
         recommended: '推荐回合',
         regular: '普通回合',
       },
