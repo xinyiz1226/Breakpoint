@@ -13,7 +13,7 @@ Breakpoint analyzes full-length tennis videos using audio-based hit detection an
 - **Hit Detection** — Detects ball strikes via audio onset analysis with adaptive thresholds
 - **Smart Segmentation** — Splits the match into individual rallies using silence gaps, with density trimming and duration filtering
 - **Vision Ranking** — Scores each rally by player motion intensity (large court coverage, diving saves, etc.)
-- **Visual Timeline Editor** — Browse, preview, and adjust rally boundaries in a desktop GUI
+- **Rally Queue & Match Map** — Browse rallies ranked by intensity in a queue view; visualize rally distribution across the full match in a match map
 - **One-Click Export** — Export selected highlights as a single compiled video via ffmpeg
 
 ## Desktop App
@@ -30,9 +30,9 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 
 1. **Open a video** — Launch the app and click "Open Video" or select a recent project
 2. **Analyze** — The pipeline runs automatically: audio extraction → hit detection → segmentation → vision ranking. This produces a timeline (`full_report.json`) of ranked rally segments — no video files are generated at this stage.
-3. **Review** — Browse the ranked segment list, click any segment to preview it in the video player
-4. **Edit** — Drag the trim handles to adjust start/end times, toggle segments on/off with checkboxes
-5. **Export** — Click "Export Highlights" to compile the selected segments into a single highlight `.mp4` video
+3. **Review** — Browse rallies in the Rally Queue (sorted by intensity score) and the Match Map (full-match overview). The system auto-recommends rallies in three tiers: highlight, keep, and cut.
+4. **Edit** — Click any rally to preview; adjust start/end times and toggle inclusion. Confirm your selection before export.
+5. **Export** — Click "Export" to compile the selected rallies into a single highlight `.mp4` video
 
 ![Editor](docs/Images/Editor.jpg)
 
@@ -40,7 +40,7 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 
 | Layer | Technology |
 |-------|-----------|
-| Analysis engine | Python 3.12, librosa, OpenCV, NumPy, SciPy |
+| Analysis engine | Python 3.14, librosa, OpenCV, NumPy, SciPy |
 | Desktop app | Electron, React, TypeScript, Vite |
 | Video processing | ffmpeg |
 | Packaging | PyInstaller (engine), electron-builder (installer) |
@@ -59,7 +59,7 @@ engine/          Analysis pipeline (audio, vision, segmentation, ranking, export
 
 desktop/         Electron + React desktop application
 ├── src/main/    Electron main process (Python bridge, ffmpeg export)
-├── src/renderer/ React UI (video player, timeline, segment list)
+├── src/renderer/ React UI (video player, rally queue, match map)
 └── scripts/     Build and packaging scripts
 
 tools/           Development utilities (comparison, parameter sweep, tests)

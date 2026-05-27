@@ -75,7 +75,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
             marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <span style={{ width: 28, height: 2, background: '#cc4e0e', display: 'inline-block' }} />
-            AI 网球精彩合集工具
+            AI驱动的网球精彩集锦编辑器
           </div>
 
           <h1 style={{
@@ -87,7 +87,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
           </h1>
 
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', maxWidth: 300, lineHeight: 1.7 }}>
-            一键去除比赛和练习中的大段空白时间，只留下值得分享的精彩瞬间。
+            你的精彩回合，自动呈现。Breakpoint 将广播视角的网球比赛或训练录像一键转化为精彩集锦。AI 音频与视觉分析自动识别每一个回合，按激烈程度排序，剔除 70%–80% 的垃圾时间，只留下值得回看的高光时刻。
           </p>
 
           <div style={{
