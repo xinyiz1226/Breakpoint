@@ -11,6 +11,7 @@ interface AnalysisStageView {
 }
 
 const ANALYSIS_STAGE_COUNT = 4
+const HIGH_INTENSITY_THRESHOLD = 2.3
 
 export function getAnalysisStageNumber(step: ProgressStep | null): number {
   if (!step) return 0
@@ -149,7 +150,7 @@ export function getAdjustedTimeRange(segment: Pick<Segment, 'start' | 'end' | 's
 
 export function getSegmentTone(segment: Pick<Segment, 'score' | 'included'>): SegmentTone {
   if (!segment.included) return 'discarded'
-  if (segment.score > 2.3) return 'highlight'
+  if (segment.score > HIGH_INTENSITY_THRESHOLD) return 'highlight'
   return 'keep'
 }
 
@@ -162,7 +163,7 @@ export function getRallyTitle(
   const parts: string[] = []
 
   if (hitCount >= 14) parts.push(copy.flow.rallyTitle.multiHit)
-  if (segment.score > 2.3) parts.push(copy.flow.rallyTitle.highIntensity)
+  if (segment.score > HIGH_INTENSITY_THRESHOLD) parts.push(copy.flow.rallyTitle.highIntensity)
   if (duration <= 8) parts.push(copy.flow.rallyTitle.short)
 
   if (parts.length > 0) {
