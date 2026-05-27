@@ -7,3 +7,4 @@ export {
   readStoredLanguage,
   writeStoredLanguage,
 } from './language'
+export { LanguageProvider, useCopy, useLanguage } from './LanguageProvider'
