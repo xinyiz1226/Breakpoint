@@ -580,12 +580,30 @@ nav {
 }
 .screenshot-placeholder svg { opacity: 0.3; }
 .screenshot-placeholder.with-image {
-  background-image: url('Images/Welcome.jpg');
+  background-image: url('Images/Welcome_Chinese.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
 }
+.screenshot-placeholder.with-image.analysis-image {
+  background-image: url('Images/VideoAnalysis_Chinese.jpg');
+}
+.screenshot-placeholder.with-image.editor-image {
+  background-image: url('Images/Edit_Chinese.jpg');
+}
+body.zh .screenshot-placeholder.with-image {
+  background-image: url('Images/Welcome_Chinese.jpg');
+}
+body.zh .screenshot-placeholder.with-image.analysis-image {
+  background-image: url('Images/VideoAnalysis_Chinese.jpg');
+}
+body.zh .screenshot-placeholder.with-image.editor-image {
+  background-image: url('Images/Edit_Chinese.jpg');
+}
 .screenshot-placeholder.with-image > * {
+  display: none;
+}
+.screenshot-placeholder.with-image > [data-lang] {
   display: none;
 }
 
@@ -993,11 +1011,15 @@ footer p {
     </p>
     <div class="screenshots-wrap fade-up">
       <div class="screenshots-tabs" id="screenshotTabs">
-        <button class="active" data-tab="welcome">
+        <button class="active" type="button" data-tab="welcome">
           <span data-lang="en">Welcome Screen</span>
           <span data-lang="zh">欢迎界面</span>
         </button>
-        <button data-tab="editor">
+        <button type="button" data-tab="analysis">
+          <span data-lang="en">Analysis View</span>
+          <span data-lang="zh">分析视图</span>
+        </button>
+        <button type="button" data-tab="editor">
           <span data-lang="en">Editor View</span>
           <span data-lang="zh">编辑器视图</span>
         </button>
@@ -1083,14 +1105,30 @@ footer p {
 
 <script>
 // Language toggle
+function savePreference(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (_) {
+    // Some embedded previews block storage; the UI should still remain interactive.
+  }
+}
+
+function readPreference(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (_) {
+    return null;
+  }
+}
+
 function setLang(lang) {
   document.body.classList.toggle('zh', lang === 'zh');
   document.querySelectorAll('.lang-toggle button').forEach(b => {
     b.classList.toggle('active', b.textContent.trim() === (lang === 'zh' ? '中文' : 'EN'));
   });
-  localStorage.setItem('bp-lang', lang);
+  savePreference('bp-lang', lang);
 }
-const saved = localStorage.getItem('bp-lang');
+const saved = readPreference('bp-lang');
 if (saved) setLang(saved);
 
 // Mobile nav toggle
@@ -1108,11 +1146,21 @@ document.querySelectorAll('#screenshotTabs button').forEach(btn => {
     const labelZh = document.getElementById('screenshotLabelZh');
     const screenshotDisplay = document.getElementById('screenshotDisplay');
     if (tab === 'editor') {
-      screenshotDisplay.classList.remove('with-image');
+      screenshotDisplay.classList.add('with-image');
+      screenshotDisplay.classList.remove('analysis-image');
+      screenshotDisplay.classList.add('editor-image');
       labelEn.textContent = 'Editor — Visual Timeline & Rally Browser';
       labelZh.textContent = '编辑器——可视化时间线 & 回合浏览器';
+    } else if (tab === 'analysis') {
+      screenshotDisplay.classList.add('with-image');
+      screenshotDisplay.classList.add('analysis-image');
+      screenshotDisplay.classList.remove('editor-image');
+      labelEn.textContent = 'Analysis — Rally Detection & Progress Tracking';
+      labelZh.textContent = '分析——回合检测 & 进度跟踪';
     } else {
       screenshotDisplay.classList.add('with-image');
+      screenshotDisplay.classList.remove('analysis-image');
+      screenshotDisplay.classList.remove('editor-image');
       labelEn.textContent = 'Welcome — File Selection & Quick Start';
       labelZh.textContent = '欢迎界面——文件选择 & 快速开始';
     }
