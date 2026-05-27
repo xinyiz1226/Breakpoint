@@ -16,3 +16,4 @@ desktop/dist-electron/
 desktop/release/
 dist-engine/
 build-engine/
+.worktrees/
