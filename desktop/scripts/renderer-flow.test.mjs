@@ -56,7 +56,45 @@ const {
   reducer,
 } = loadTsModule(path.join('src', 'renderer', 'state', 'AppState.tsx'))
 
+const {
+  COPY,
+  LANGUAGE_LABELS,
+} = loadTsModule(path.join('src', 'renderer', 'i18n', 'copy.ts'))
+
+const {
+  detectDefaultLanguage,
+  parseStoredLanguage,
+  readStoredLanguage,
+  writeStoredLanguage,
+  LANGUAGE_STORAGE_KEY,
+} = loadTsModule(path.join('src', 'renderer', 'i18n', 'language.ts'))
+
 const plain = (value) => JSON.parse(JSON.stringify(value))
+
+assert.equal(LANGUAGE_STORAGE_KEY, 'bp-desktop-language')
+assert.equal(detectDefaultLanguage('zh-CN'), 'zh')
+assert.equal(detectDefaultLanguage('zh-Hant-TW'), 'zh')
+assert.equal(detectDefaultLanguage('en-US'), 'en')
+assert.equal(detectDefaultLanguage('fr-FR'), 'en')
+assert.equal(detectDefaultLanguage(undefined), 'en')
+assert.equal(parseStoredLanguage('zh'), 'zh')
+assert.equal(parseStoredLanguage('en'), 'en')
+assert.equal(parseStoredLanguage('ja'), null)
+assert.equal(LANGUAGE_LABELS.en, 'EN')
+assert.equal(LANGUAGE_LABELS.zh, '中文')
+assert.equal(COPY.en.welcome.importTitle, 'Import new video')
+assert.equal(COPY.zh.welcome.importTitle, '导入新视频')
+
+const storage = new Map()
+const storageLike = {
+  getItem: (key) => storage.has(key) ? storage.get(key) : null,
+  setItem: (key, value) => storage.set(key, value),
+}
+assert.equal(readStoredLanguage(storageLike), null)
+assert.equal(writeStoredLanguage(storageLike, 'zh'), true)
+assert.equal(readStoredLanguage(storageLike), 'zh')
+assert.equal(writeStoredLanguage({ setItem: () => { throw new Error('blocked') } }, 'en'), false)
+assert.equal(readStoredLanguage({ getItem: () => { throw new Error('blocked') } }), null)
 
 assert.deepEqual(plain(getAnalysisStageView(null)), {
   title: '准备开始处理',
