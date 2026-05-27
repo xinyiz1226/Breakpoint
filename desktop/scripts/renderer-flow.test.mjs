@@ -84,6 +84,9 @@ assert.equal(LANGUAGE_LABELS.en, 'EN')
 assert.equal(LANGUAGE_LABELS.zh, '中文')
 assert.equal(COPY.en.welcome.importTitle, 'Import new video')
 assert.equal(COPY.zh.welcome.importTitle, '导入新视频')
+assert.equal(COPY.zh.app.cancelled, '已取消')
+assert.equal(COPY.zh.app.reportMissing, '找不到分析报告文件')
+assert.equal(COPY.zh.app.unknownError, '未知错误')
 
 const storage = new Map()
 const storageLike = {

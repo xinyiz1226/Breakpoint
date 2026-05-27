@@ -5,7 +5,130 @@ export const LANGUAGE_LABELS: Record<Language, string> = {
   zh: '中文',
 }
 
-export const COPY = {
+interface CopyStage {
+  title: string
+  detail: string
+}
+
+interface CopyFlowStage extends CopyStage {
+  stageLabel: string
+}
+
+type AnalysisPanelStages = [CopyStage, CopyStage, CopyStage, CopyStage]
+type FlowStages = [CopyFlowStage, CopyFlowStage, CopyFlowStage, CopyFlowStage]
+
+interface RallyTitleCopy {
+  multiHit: string
+  highIntensity: string
+  short: string
+  suffix: string
+  recommended: string
+  regular: string
+}
+
+export interface Copy {
+  common: {
+    appName: string
+    desktop: string
+    open: string
+    edited: string
+    hitCountUnknown: string
+  }
+  language: {
+    label: string
+  }
+  welcome: {
+    eyebrow: string
+    description: string
+    startLabel: string
+    importTitle: string
+    importDetail: string
+    dropHint: string
+    recentTitle: string
+    shortcutImport: string
+    shortcutQuit: string
+  }
+  app: {
+    resourceErrorTitle: string
+    missingResources: string
+    reviewTitle: string
+    returnWelcome: string
+    rerunAnalysis: string
+    exportFailedPrefix: string
+    exportComplete: string
+    cancelled: string
+    reportMissing: string
+    unknownError: string
+  }
+  analysisScreen: {
+    problemTitle: string
+    runningTitle: string
+  }
+  analysisPanel: {
+    failedEyebrow: string
+    failedTitle: string
+    retry: string
+    returnWelcome: string
+    autoStart: string
+    headline: string
+    intro: string
+    cancel: string
+    subProgressTitle: string
+    statusDone: string
+    statusCurrent: string
+    statusNext: string
+    stages: AnalysisPanelStages
+  }
+  matchMap: {
+    title: string
+    subtitle: string
+    highlight: string
+    keep: string
+    discarded: string
+    intensity: string
+    showAll: string
+    recommendedOnly: string
+  }
+  rallyQueue: {
+    title: string
+    exportCount: (selected: number, total: number) => string
+    includeAll: string
+    restoreRecommended: string
+    excludeAll: string
+    empty: string
+    exportSummary: (selected: number) => string
+    exportDuration: (duration: string) => string
+    cancelExport: string
+    openExport: string
+    toneHighlight: string
+    toneKeep: string
+    toneDiscarded: string
+    hits: (count: number | string) => string
+    intensity: (score: string) => string
+    start: string
+    end: string
+    trimHelp: (start: string, end: string) => string
+    reset: string
+  }
+  flow: {
+    stages: FlowStages
+    waitingTitle: string
+    waitingDetail: string
+    waitingStageLabel: string
+    groupLabel: (current: number, total: number) => string
+    progressLabel: (step: number, total: number, groupLabel?: string) => string
+    visualHeadlineFiltering: string
+    visualHeadlineAnalyzing: string
+    visualDetail: (segment: number, total: number, percent: number) => string
+    reviewInstruction: string
+    exportNoSelection: string
+    exportSelected: string
+    exporting: (selected: number) => string
+    rallyTitle: RallyTitleCopy
+  }
+}
+
+export const COPY: Record<Language, Copy> = {
   en: {
     common: {
       appName: 'Breakpoint',
@@ -154,9 +277,9 @@ export const COPY = {
       rerunAnalysis: '重新处理',
       exportFailedPrefix: '导出失败：',
       exportComplete: '精彩合集已导出',
-      cancelled: 'Cancelled',
-      reportMissing: 'Report file not found',
-      unknownError: 'Unknown error',
+      cancelled: '已取消',
+      reportMissing: '找不到分析报告文件',
+      unknownError: '未知错误',
     },
     analysisScreen: {
       problemTitle: '分析遇到问题',
@@ -242,6 +365,4 @@ export const COPY = {
       },
     },
   },
-} as const
-
-export type Copy = typeof COPY.en
+}
