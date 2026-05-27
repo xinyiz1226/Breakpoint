@@ -45,6 +45,7 @@ const {
   getRallyTitle,
   getSegmentTone,
   getAdjustedTimeRange,
+  getAnalysisVisualState,
 } = loadTsModule(path.join('src', 'renderer', 'viewModels', 'flowCopy.ts'))
 
 const {
@@ -99,7 +100,7 @@ assert.equal(readStoredLanguage(storageLike), 'zh')
 assert.equal(writeStoredLanguage({ setItem: () => { throw new Error('blocked') } }, 'en'), false)
 assert.equal(readStoredLanguage({ getItem: () => { throw new Error('blocked') } }), null)
 
-assert.deepEqual(plain(getAnalysisStageView(null)), {
+assert.deepEqual(plain(getAnalysisStageView(null, COPY.zh)), {
   title: '准备开始处理',
   detail: '导入视频后会自动开始分析。',
   stageLabel: '等待视频',
@@ -107,8 +108,16 @@ assert.deepEqual(plain(getAnalysisStageView(null)), {
   progress: 0,
   subProgress: null,
 })
+assert.deepEqual(plain(getAnalysisStageView(null, COPY.en)), {
+  title: 'Ready to process',
+  detail: 'Analysis starts automatically after you import a video.',
+  stageLabel: 'Waiting',
+  progressLabel: '0 / 4',
+  progress: 0,
+  subProgress: null,
+})
 
-assert.deepEqual(plain(getAnalysisStageView({ step: 3, total: 4, label: 'vision ranking', subCurrent: 1, subTotal: 10 })), {
+assert.deepEqual(plain(getAnalysisStageView({ step: 3, total: 4, label: 'vision ranking', subCurrent: 1, subTotal: 10 }, COPY.zh)), {
   title: '正在筛选精彩瞬间',
   detail: '正在逐组确认可分享的高光片段，请保持窗口打开。',
   stageLabel: '筛选中',
@@ -117,7 +126,7 @@ assert.deepEqual(plain(getAnalysisStageView({ step: 3, total: 4, label: 'vision 
   subProgress: { current: 1, total: 10, label: '1 / 10 组' },
 })
 
-assert.deepEqual(plain(getAnalysisStageView({ step: 3.5, total: 4, label: 'Analyzing player motion', subCurrent: 1, subTotal: 32 })), {
+assert.deepEqual(plain(getAnalysisStageView({ step: 3.5, total: 4, label: 'Analyzing player motion', subCurrent: 1, subTotal: 32 }, COPY.zh)), {
   title: '正在筛选精彩瞬间',
   detail: '正在逐组确认可分享的高光片段，请保持窗口打开。',
   stageLabel: '筛选中',
@@ -128,20 +137,21 @@ assert.deepEqual(plain(getAnalysisStageView({ step: 3.5, total: 4, label: 'Analy
 assert.equal(getAnalysisStageNumber({ step: 3.5, total: 4, label: 'Analyzing player motion', subCurrent: 1, subTotal: 32 }), 3)
 assert.equal(getAnalysisStageNumber({ step: 4, total: 4, label: 'Ranking points' }), 4)
 
-assert.deepEqual(plain(getReviewTaskSummary([
+assert.equal(getReviewTaskSummary([
   { start: 10, end: 20, score: 2.4, included: true, features: {}, index: 0 },
   { start: 40, end: 52.5, score: 1.4, included: false, features: {}, index: 1 },
   { start: 70, end: 95, score: 2.1, included: true, startAdjusted: 72, endAdjusted: 93, features: {}, index: 2 },
-])), {
-  selectedCount: 2,
-  totalCount: 3,
-  selectedDurationLabel: '0:31',
-  instruction: '挑选视频片段，确认保留后导出精彩合集。',
-})
+], COPY.en).instruction, 'Pick the video clips to keep, then export a highlight reel.')
+assert.equal(getReviewTaskSummary([
+  { start: 10, end: 20, score: 2.4, included: true, features: {}, index: 0 },
+], COPY.zh).instruction, '挑选视频片段，确认保留后导出精彩合集。')
 
-assert.equal(getExportActionCopy(0, false), '选择回合后导出')
-assert.equal(getExportActionCopy(3, false), '导出已选择的回合')
-assert.equal(getExportActionCopy(3, true), '正在导出 3 个回合')
+assert.equal(getExportActionCopy(0, false, COPY.en), 'Select rallies to export')
+assert.equal(getExportActionCopy(3, false, COPY.en), 'Export selected rallies')
+assert.equal(getExportActionCopy(3, true, COPY.en), 'Exporting 3 rallies')
+assert.equal(getExportActionCopy(0, false, COPY.zh), '选择回合后导出')
+assert.equal(getExportActionCopy(3, false, COPY.zh), '导出已选择的回合')
+assert.equal(getExportActionCopy(3, true, COPY.zh), '正在导出 3 个回合')
 assert.equal(formatClipDuration(61.8), '1:01')
 const highMultiHitSegment = {
   index: 7,
@@ -151,7 +161,8 @@ const highMultiHitSegment = {
   included: true,
   features: { hit_count: 18 },
 }
-assert.equal(getRallyTitle(highMultiHitSegment), '多拍高强度回合 #08')
+assert.equal(getRallyTitle(highMultiHitSegment, COPY.en), 'Long High-intensity rally #08')
+assert.equal(getRallyTitle(highMultiHitSegment, COPY.zh), '多拍高强度回合 #08')
 assert.equal(getSegmentTone(highMultiHitSegment), 'highlight')
 assert.deepEqual(plain(getAdjustedTimeRange({
   index: 2,
@@ -176,7 +187,7 @@ assert.equal(getRallyTitle({
   score: 1.8,
   included: true,
   features: { hit_count: 5 },
-}), '短回合 #04')
+}, COPY.en), 'Short rally #04')
 assert.equal(getSegmentTone({
   index: 3,
   start: 20,
@@ -193,7 +204,9 @@ assert.equal(getRallyTitle({
   score: 1.1,
   included: false,
   features: {},
-}), '普通回合 #05')
+}, COPY.en), 'Regular rally #05')
+assert.equal(getAnalysisVisualState({ step: 3, total: 4, label: 'vision ranking', subCurrent: 2, subTotal: 8 }, COPY.en).headline, 'Filtering highlight clips')
+assert.equal(getAnalysisVisualState({ step: 1, total: 4, label: 'load' }, COPY.zh).headline, '正在分析视频')
 assert.equal(getSegmentTone({
   index: 4,
   start: 40,
