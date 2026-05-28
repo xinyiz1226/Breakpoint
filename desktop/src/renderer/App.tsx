@@ -243,6 +243,7 @@ function LanguageSwitch({ language, onChange }: { language: Language; onChange: 
         <button
           key={item}
           onClick={() => onChange(item)}
+          aria-label={language === item ? `${LANGUAGE_LABELS[item]} selected` : `Switch to ${LANGUAGE_LABELS[item]}`}
           style={{
             ...topBtnStyle,
             background: language === item ? 'var(--color-green)' : 'var(--color-surface)',
