@@ -36,7 +36,7 @@ export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnW
         color: 'var(--color-text-secondary)',
         WebkitAppRegion: 'drag',
       } as CSSProperties}>
-        <div>Breakpoint · {errorMessage ? copy.analysisScreen.problemTitle : copy.analysisScreen.runningTitle}</div>
+        <div>{copy.common.appName} · {errorMessage ? copy.analysisScreen.problemTitle : copy.analysisScreen.runningTitle}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, WebkitAppRegion: 'no-drag' } as CSSProperties}>
           {languageSwitch}
           <span>v0.1.6</span>
