@@ -1,7 +1,8 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 
 interface Props {
   onVideoSelected: (path: string) => void
+  languageSwitch: ReactNode
 }
 
 const heroPanel: CSSProperties = {
@@ -25,7 +26,7 @@ const actionPanel: CSSProperties = {
   WebkitAppRegion: 'drag',
 } as CSSProperties
 
-export default function WelcomeScreen({ onVideoSelected }: Props) {
+export default function WelcomeScreen({ onVideoSelected, languageSwitch }: Props) {
   const [recent, setRecent] = useState<string[]>([])
   const [appVersion, setAppVersion] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -103,6 +104,10 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
       {/* Action panel */}
       <div style={actionPanel}>
         <div style={{ position: 'relative', zIndex: 2, maxWidth: 360, WebkitAppRegion: 'no-drag' } as CSSProperties}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+            {languageSwitch}
+          </div>
+
           <div style={{
             fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700,
             letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--color-text-secondary)',

@@ -240,6 +240,10 @@ assert.match(analysisPanelSource, /筛选进度/)
 const analysisScreenSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'AnalysisScreen.tsx'), 'utf8')
 assert.match(analysisScreenSource, /AnalysisCourtVisual/)
 assert.match(analysisScreenSource, /AnalysisProgressPanel/)
+assert.match(analysisScreenSource, /languageSwitch/)
+
+const welcomeScreenSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'WelcomeScreen.tsx'), 'utf8')
+assert.match(welcomeScreenSource, /languageSwitch/)
 
 const matchMapSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'MatchMap.tsx'), 'utf8')
 assert.match(matchMapSource, /const safeDuration = Math\.max\(videoDuration, 1\)/)
