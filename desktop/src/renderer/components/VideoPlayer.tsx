@@ -71,12 +71,12 @@ export default function VideoPlayer({ videoPath, onTimeUpdate, onDurationChange,
   const src = videoPath.startsWith('file://') ? videoPath : `file:///${videoPath.replace(/\\/g, '/')}`
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: 0 }}>
-      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+    <div style={playerRootStyle}>
+      <div style={videoViewportStyle}>
         <video
           ref={videoRef}
           src={src}
-          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          style={videoElementStyle}
           onTimeUpdate={() => {
             const v = videoRef.current
             if (!v) return
@@ -99,14 +99,7 @@ export default function VideoPlayer({ videoPath, onTimeUpdate, onDurationChange,
         />
       </div>
 
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '8px 16px',
-        background: 'rgba(0,0,0,0.85)',
-        flexShrink: 0,
-      }}>
+      <div style={controlBarStyle}>
         <button onClick={() => skip(-10)} style={controlBtn} title="Back 10s">
           ⏪
         </button>
@@ -146,6 +139,42 @@ export default function VideoPlayer({ videoPath, onTimeUpdate, onDurationChange,
       </div>
     </div>
   )
+}
+
+const playerRootStyle: React.CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  background: '#000',
+}
+
+const videoViewportStyle: React.CSSProperties = {
+  flex: '1 1 0',
+  minHeight: 0,
+  minWidth: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+}
+
+const videoElementStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  height: '100%',
+  maxWidth: '100%',
+  maxHeight: '100%',
+  objectFit: 'contain',
+}
+
+const controlBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '8px 16px',
+  background: 'rgba(0,0,0,0.85)',
+  flexShrink: 0,
 }
 
 const controlBtn: React.CSSProperties = {

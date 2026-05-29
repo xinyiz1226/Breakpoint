@@ -272,6 +272,16 @@ const rallyQueueSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'com
 assert.match(rallyQueueSource, /useCopy/)
 assert.doesNotMatch(rallyQueueSource, /回合队列|全选|推荐|清空|取消导出|重置/)
 
+const videoPlayerSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'VideoPlayer.tsx'), 'utf8')
+assert.match(videoPlayerSource, /const playerRootStyle: React\.CSSProperties/)
+assert.match(videoPlayerSource, /const videoViewportStyle: React\.CSSProperties/)
+assert.match(videoPlayerSource, /const videoElementStyle: React\.CSSProperties/)
+assert.match(videoPlayerSource, /height: '100%'/)
+assert.match(videoPlayerSource, /flex: '1 1 0'/)
+assert.match(videoPlayerSource, /maxHeight: '100%'/)
+assert.match(videoPlayerSource, /objectFit: 'contain'/)
+assert.match(videoPlayerSource, /flexShrink: 0/)
+
 const appSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'App.tsx'), 'utf8')
 const providerSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'i18n', 'LanguageProvider.tsx'), 'utf8')
 assert.match(providerSource, /createContext/)
