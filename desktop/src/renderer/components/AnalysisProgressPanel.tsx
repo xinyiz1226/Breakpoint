@@ -41,7 +41,7 @@ export default function AnalysisProgressPanel({ step, errorMessage, onCancel, on
       </div>
       <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(28px, 4.4vw, 56px)', lineHeight: 0.96, letterSpacing: '-0.045em', margin: '0 0 16px', color: 'var(--color-text)' }}>
         {copy.analysisPanel.headline.split('\n').map((line, index) => (
-          <span key={line}>{index > 0 && <br />}{line}</span>
+          <span key={index}>{index > 0 && <br />}{line}</span>
         ))}
       </h1>
       <p style={{ color: 'var(--color-text-secondary)', lineHeight: 1.7, margin: '0 0 26px', maxWidth: 560, fontSize: 'clamp(12px, 1.05vw, 14px)' }}>{copy.analysisPanel.intro}</p>

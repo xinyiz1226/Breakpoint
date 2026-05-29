@@ -241,6 +241,8 @@ assert.match(analysisPanelSource, /getAnalysisStageView/)
 assert.match(analysisPanelSource, /useCopy/)
 assert.match(analysisPanelSource, /activeStage === 3/)
 assert.match(analysisPanelSource, /view\.subProgress/)
+assert.match(analysisPanelSource, /<span key=\{index\}>/)
+assert.doesNotMatch(analysisPanelSource, /<span key=\{line\}>/)
 assert.doesNotMatch(analysisPanelSource, /取消处理|筛选进度|处理失败/)
 
 const analysisScreenSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'AnalysisScreen.tsx'), 'utf8')
