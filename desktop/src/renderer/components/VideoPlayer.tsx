@@ -142,7 +142,7 @@ export default function VideoPlayer({ videoPath, onTimeUpdate, onDurationChange,
 }
 
 const playerRootStyle: React.CSSProperties = {
-  flex: '1 1 0',
+  height: '100%',
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
