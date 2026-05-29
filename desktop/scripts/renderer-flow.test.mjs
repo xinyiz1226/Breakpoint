@@ -276,8 +276,10 @@ const videoPlayerSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'co
 assert.match(videoPlayerSource, /const playerRootStyle: React\.CSSProperties/)
 assert.match(videoPlayerSource, /const videoViewportStyle: React\.CSSProperties/)
 assert.match(videoPlayerSource, /const videoElementStyle: React\.CSSProperties/)
-assert.match(videoPlayerSource, /height: '100%'/)
-assert.match(videoPlayerSource, /flex: '1 1 0'/)
+const playerRootStyleBlock = videoPlayerSource.match(/const playerRootStyle: React\.CSSProperties = \{([\s\S]*?)\n\}/)?.[1] ?? ''
+const videoViewportStyleBlock = videoPlayerSource.match(/const videoViewportStyle: React\.CSSProperties = \{([\s\S]*?)\n\}/)?.[1] ?? ''
+assert.match(playerRootStyleBlock, /flex: '1 1 0'/)
+assert.match(videoViewportStyleBlock, /flex: '1 1 0'/)
 assert.match(videoPlayerSource, /maxHeight: '100%'/)
 assert.match(videoPlayerSource, /objectFit: 'contain'/)
 assert.match(videoPlayerSource, /flexShrink: 0/)
