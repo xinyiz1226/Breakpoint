@@ -90,6 +90,12 @@ assert.equal(COPY.zh.app.reportMissing, '找不到分析报告文件')
 assert.equal(COPY.zh.app.unknownError, '未知错误')
 assert.equal(COPY.en.flow.rallyTitle.joinPartsWithSpace, true)
 assert.equal(COPY.zh.flow.rallyTitle.joinPartsWithSpace, false)
+assert.deepEqual(COPY.en.analysisPanel.headline.split('\n'), ['AI is analyzing', 'the full video'])
+assert.deepEqual(COPY.zh.analysisPanel.headline.split('\n'), ['正在用 AI', '分析整场视频'])
+assert.doesNotMatch(COPY.en.analysisPanel.headline.split('\n')[0], /\\$/)
+assert.doesNotMatch(COPY.zh.analysisPanel.headline.split('\n')[0], /\\$/)
+assert.doesNotMatch(COPY.en.analysisPanel.headline, /\\/)
+assert.doesNotMatch(COPY.zh.analysisPanel.headline, /\\/)
 
 const storage = new Map()
 const storageLike = {
