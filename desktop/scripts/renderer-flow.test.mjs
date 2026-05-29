@@ -276,13 +276,16 @@ const videoPlayerSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'co
 assert.match(videoPlayerSource, /const playerRootStyle: React\.CSSProperties/)
 assert.match(videoPlayerSource, /const videoViewportStyle: React\.CSSProperties/)
 assert.match(videoPlayerSource, /const videoElementStyle: React\.CSSProperties/)
+assert.match(videoPlayerSource, /const controlBarStyle: React\.CSSProperties/)
 const playerRootStyleBlock = videoPlayerSource.match(/const playerRootStyle: React\.CSSProperties = \{([\s\S]*?)\n\}/)?.[1] ?? ''
 const videoViewportStyleBlock = videoPlayerSource.match(/const videoViewportStyle: React\.CSSProperties = \{([\s\S]*?)\n\}/)?.[1] ?? ''
+const videoElementStyleBlock = videoPlayerSource.match(/const videoElementStyle: React\.CSSProperties = \{([\s\S]*?)\n\}/)?.[1] ?? ''
+const controlBarStyleBlock = videoPlayerSource.match(/const controlBarStyle: React\.CSSProperties = \{([\s\S]*?)\n\}/)?.[1] ?? ''
 assert.match(playerRootStyleBlock, /height: '100%'/)
 assert.match(videoViewportStyleBlock, /flex: '1 1 0'/)
-assert.match(videoPlayerSource, /maxHeight: '100%'/)
-assert.match(videoPlayerSource, /objectFit: 'contain'/)
-assert.match(videoPlayerSource, /flexShrink: 0/)
+assert.match(videoElementStyleBlock, /maxHeight: '100%'/)
+assert.match(videoElementStyleBlock, /objectFit: 'contain'/)
+assert.match(controlBarStyleBlock, /flexShrink: 0/)
 
 const appSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'App.tsx'), 'utf8')
 const providerSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'i18n', 'LanguageProvider.tsx'), 'utf8')
