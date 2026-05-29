@@ -1,5 +1,6 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { ProgressStep } from '../state/AppState'
+import { useCopy } from '../i18n'
 import AnalysisCourtVisual from './AnalysisCourtVisual'
 import AnalysisProgressPanel from './AnalysisProgressPanel'
 
@@ -9,9 +10,12 @@ interface Props {
   onCancel: () => void
   onReturnWelcome: () => void
   onRetry: () => void
+  languageSwitch: ReactNode
 }
 
-export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnWelcome, onRetry }: Props) {
+export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnWelcome, onRetry, languageSwitch }: Props) {
+  const copy = useCopy()
+
   return (
     <div style={{
       height: '100vh',
@@ -32,8 +36,11 @@ export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnW
         color: 'var(--color-text-secondary)',
         WebkitAppRegion: 'drag',
       } as CSSProperties}>
-        <div>Breakpoint · {errorMessage ? '分析遇到问题' : '正在分析视频'}</div>
-        <div>v0.1.6</div>
+        <div>{copy.common.appName} · {errorMessage ? copy.analysisScreen.problemTitle : copy.analysisScreen.runningTitle}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, WebkitAppRegion: 'no-drag' } as CSSProperties}>
+          {languageSwitch}
+          <span>v0.1.6</span>
+        </div>
       </div>
       <div style={{
         display: 'grid',

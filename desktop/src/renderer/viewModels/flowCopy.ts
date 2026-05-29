@@ -1,4 +1,5 @@
 import type { ProgressStep, Segment } from '../state/AppState'
+import type { Copy } from '../i18n'
 
 interface AnalysisStageView {
   title: string
@@ -9,16 +10,12 @@ interface AnalysisStageView {
   subProgress: { current: number; total: number; label: string } | null
 }
 
-const ANALYSIS_STAGES = [
-  { title: '正在读取整场视频', detail: '正在准备比赛素材，导入后会自动进入下一步。', stageLabel: '读取中' },
-  { title: '正在定位比赛片段', detail: '正在把完整视频整理成可确认的候选片段。', stageLabel: '定位中' },
-  { title: '正在筛选精彩瞬间', detail: '正在逐组确认可分享的高光片段，请保持窗口打开。', stageLabel: '筛选中' },
-  { title: '正在准备确认列表', detail: '即将进入剪辑页，你可以确认片段并导出合集。', stageLabel: '准备中' },
-] as const
+const ANALYSIS_STAGE_COUNT = 4
+const HIGH_INTENSITY_THRESHOLD = 2.3
 
 export function getAnalysisStageNumber(step: ProgressStep | null): number {
   if (!step) return 0
-  return Math.min(Math.max(Math.floor(step.step), 1), ANALYSIS_STAGES.length)
+  return Math.min(Math.max(Math.floor(step.step), 1), ANALYSIS_STAGE_COUNT)
 }
 
 interface AnalysisVisualBar {
@@ -40,9 +37,9 @@ interface AnalysisVisualState {
 
 const VISUAL_BAR_HEIGHTS = [18, 26, 16, 34, 22, 30, 20, 38, 24, 32, 18, 28]
 
-export function getAnalysisVisualState(step: ProgressStep | null): AnalysisVisualState {
+export function getAnalysisVisualState(step: ProgressStep | null, copy: Copy): AnalysisVisualState {
   const activeStage = getAnalysisStageNumber(step)
-  const total = Math.max(step?.total ?? 4, 1)
+  const total = Math.max(step?.total ?? ANALYSIS_STAGE_COUNT, 1)
   const progress = Math.min(Math.max((step?.step ?? 0) / total, 0), 1)
   const segmentTotal = Math.max(step?.subTotal ?? 12, 1)
   const activeSegment = Math.min(Math.max(step?.subCurrent ?? 1, 1), segmentTotal)
@@ -54,8 +51,8 @@ export function getAnalysisVisualState(step: ProgressStep | null): AnalysisVisua
     activeStage,
     activeSegment,
     segmentTotal,
-    headline: activeStage === 3 ? '正在筛选精彩片段' : '正在分析视频',
-    detail: `片段 ${activeSegment} / ${segmentTotal} · 当前 ${currentPercent}%`,
+    headline: activeStage === 3 ? copy.flow.visualHeadlineFiltering : copy.flow.visualHeadlineAnalyzing,
+    detail: copy.flow.visualDetail(activeSegment, segmentTotal, currentPercent),
     bars: VISUAL_BAR_HEIGHTS.map((height, index) => {
       const barIndex = index + 1
       return {
@@ -68,13 +65,13 @@ export function getAnalysisVisualState(step: ProgressStep | null): AnalysisVisua
   }
 }
 
-export function getAnalysisStageView(step: ProgressStep | null): AnalysisStageView {
+export function getAnalysisStageView(step: ProgressStep | null, copy: Copy): AnalysisStageView {
   if (!step) {
     return {
-      title: '准备开始处理',
-      detail: '导入视频后会自动开始分析。',
-      stageLabel: '等待视频',
-      progressLabel: '0 / 4',
+      title: copy.flow.waitingTitle,
+      detail: copy.flow.waitingDetail,
+      stageLabel: copy.flow.waitingStageLabel,
+      progressLabel: copy.flow.progressLabel(0, ANALYSIS_STAGE_COUNT),
       progress: 0,
       subProgress: null,
     }
@@ -82,12 +79,12 @@ export function getAnalysisStageView(step: ProgressStep | null): AnalysisStageVi
 
   const total = Math.max(step.total, 1)
   const stepIndex = getAnalysisStageNumber(step) - 1
-  const stage = ANALYSIS_STAGES[stepIndex]
+  const stage = copy.flow.stages[stepIndex]
   const subProgress = step.subCurrent != null && step.subTotal != null
     ? {
         current: step.subCurrent,
         total: step.subTotal,
-        label: `${step.subCurrent} / ${step.subTotal} 组`,
+        label: copy.flow.groupLabel(step.subCurrent, step.subTotal),
       }
     : null
 
@@ -95,7 +92,7 @@ export function getAnalysisStageView(step: ProgressStep | null): AnalysisStageVi
     title: stage.title,
     detail: stage.detail,
     stageLabel: stage.stageLabel,
-    progressLabel: `${step.step} / ${total}${subProgress ? ` · ${subProgress.label}` : ''}`,
+    progressLabel: copy.flow.progressLabel(step.step, total, subProgress?.label),
     progress: Math.min(Math.max(step.step / total, 0), 1),
     subProgress,
   }
@@ -108,7 +105,10 @@ export function formatClipDuration(seconds: number): string {
   return `${minutes}:${remainder.toString().padStart(2, '0')}`
 }
 
-export function getReviewTaskSummary(segments: Pick<Segment, 'included' | 'start' | 'end' | 'startAdjusted' | 'endAdjusted'>[]) {
+export function getReviewTaskSummary(
+  segments: Pick<Segment, 'included' | 'start' | 'end' | 'startAdjusted' | 'endAdjusted'>[],
+  copy: Copy,
+) {
   const selected = segments.filter((segment) => segment.included)
   const selectedDuration = selected.reduce((sum, segment) => {
     const start = segment.startAdjusted ?? segment.start
@@ -120,14 +120,14 @@ export function getReviewTaskSummary(segments: Pick<Segment, 'included' | 'start
     selectedCount: selected.length,
     totalCount: segments.length,
     selectedDurationLabel: formatClipDuration(selectedDuration),
-    instruction: '挑选视频片段，确认保留后导出精彩合集。',
+    instruction: copy.flow.reviewInstruction,
   }
 }
 
-export function getExportActionCopy(selectedCount: number, exporting: boolean): string {
-  if (exporting) return `正在导出 ${selectedCount} 个回合`
-  if (selectedCount === 0) return '选择回合后导出'
-  return '导出已选择的回合'
+export function getExportActionCopy(selectedCount: number, exporting: boolean, copy: Copy): string {
+  if (exporting) return copy.flow.exporting(selectedCount)
+  if (selectedCount === 0) return copy.flow.exportNoSelection
+  return copy.flow.exportSelected
 }
 
 export type SegmentTone = 'highlight' | 'keep' | 'discarded'
@@ -150,23 +150,29 @@ export function getAdjustedTimeRange(segment: Pick<Segment, 'start' | 'end' | 's
 
 export function getSegmentTone(segment: Pick<Segment, 'score' | 'included'>): SegmentTone {
   if (!segment.included) return 'discarded'
-  if (segment.score > 2.3) return 'highlight'
+  if (segment.score > HIGH_INTENSITY_THRESHOLD) return 'highlight'
   return 'keep'
 }
 
-export function getRallyTitle(segment: Pick<Segment, 'index' | 'start' | 'end' | 'score' | 'features'>): string {
+export function getRallyTitle(
+  segment: Pick<Segment, 'index' | 'start' | 'end' | 'score' | 'features'>,
+  copy: Copy,
+): string {
   const duration = Math.max(segment.end - segment.start, 0)
   const hitCount = segment.features.hit_count ?? 0
   const parts: string[] = []
 
-  if (hitCount >= 14) parts.push('多拍')
-  if (segment.score > 2.3) parts.push('高强度')
-  if (duration <= 8) parts.push('短')
+  if (hitCount >= 14) parts.push(copy.flow.rallyTitle.multiHit)
+  if (segment.score > HIGH_INTENSITY_THRESHOLD) parts.push(copy.flow.rallyTitle.highIntensity)
+  if (duration <= 8) parts.push(copy.flow.rallyTitle.short)
 
   if (parts.length > 0) {
-    return `${parts.join('')}回合 ${formatSegmentNumber(segment.index)}`
+    const joined = parts.join(copy.flow.rallyTitle.joinPartsWithSpace ? ' ' : '')
+    return copy.flow.rallyTitle.joinPartsWithSpace
+      ? `${joined} ${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
+      : `${joined}${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
   }
 
-  const fallback = segment.score > 1.7 ? '推荐回合' : '普通回合'
+  const fallback = segment.score > 1.7 ? copy.flow.rallyTitle.recommended : copy.flow.rallyTitle.regular
   return `${fallback} ${formatSegmentNumber(segment.index)}`
 }

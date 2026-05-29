@@ -6,9 +6,13 @@ import AnalysisScreen from './components/AnalysisScreen'
 import RallyQueue from './components/RallyQueue'
 import MatchMap from './components/MatchMap'
 import { hasReusableAnalysisReport } from './analysisFlow'
+import { LanguageProvider, useCopy, useLanguage, LANGUAGE_LABELS, type Language } from './i18n'
 
 function AppInner() {
   const { state, dispatch } = useAppState()
+  const copy = useCopy()
+  const { language, setLanguage } = useLanguage()
+  const languageSwitch = <LanguageSwitch language={language} onChange={setLanguage} />
   const [seekTarget, setSeekTarget] = useState<number | null>(null)
   const [seekCounter, setSeekCounter] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -18,10 +22,10 @@ function AppInner() {
   useEffect(() => {
     window.api.checkResources().then((res) => {
       if (!res.ok) {
-        setResourceError(`Installer missing bundled resources: ${res.missing.join(', ')}`)
+        setResourceError(`${copy.app.missingResources} ${res.missing.join(', ')}`)
       }
     })
-  }, [])
+  }, [copy.app.missingResources])
 
   const doSeek = useCallback((t: number) => {
     setAutoPlay(false)
@@ -66,12 +70,12 @@ function AppInner() {
               segments: applyAutoInclude(segments.map((s) => ({ ...s, included: false }))),
             })
           } else {
-            dispatch({ type: 'ANALYSIS_ERROR', message: 'Report file not found' })
+            dispatch({ type: 'ANALYSIS_ERROR', message: copy.app.reportMissing })
           }
         })
       } else if (event.type === 'error') {
         cleanup()
-        dispatch({ type: 'ANALYSIS_ERROR', message: event.message ?? 'Unknown error' })
+        dispatch({ type: 'ANALYSIS_ERROR', message: event.message ?? copy.app.unknownError })
       }
     })
 
@@ -80,7 +84,7 @@ function AppInner() {
       cleanup()
       dispatch({ type: 'ANALYSIS_ERROR', message: result.error })
     }
-  }, [dispatch, state.currentStep])
+  }, [copy.app.reportMissing, copy.app.unknownError, dispatch, state.currentStep])
 
   const handleVideoSelected = useCallback(async (path: string) => {
     dispatch({ type: 'SET_VIDEO', path })
@@ -122,11 +126,11 @@ function AppInner() {
     setExportProgress(null)
 
     if (result.error) {
-      setExportResult({ status: 'error', message: `导出失败：${result.error}` })
+      setExportResult({ status: 'error', message: `${copy.app.exportFailedPrefix}${result.error}` })
     } else if (!result.cancelled) {
-      setExportResult({ status: 'complete', message: '精彩合集已导出', outputPath: result.outputPath })
+      setExportResult({ status: 'complete', message: copy.app.exportComplete, outputPath: result.outputPath })
     }
-  }, [state.videoPath, state.segments])
+  }, [copy.app.exportComplete, copy.app.exportFailedPrefix, state.videoPath, state.segments])
 
   const handleReturnWelcome = useCallback(() => {
     window.api.cancelAnalysis()
@@ -143,7 +147,7 @@ function AppInner() {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
         <div style={{ textAlign: 'center', maxWidth: 480 }}>
-          <h2 style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>Resource Error</h2>
+          <h2 style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>{copy.app.resourceErrorTitle}</h2>
           <p style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>{resourceError}</p>
         </div>
       </div>
@@ -151,7 +155,7 @@ function AppInner() {
   }
 
   if (!state.videoPath) {
-    return <WelcomeScreen onVideoSelected={handleVideoSelected} />
+    return <WelcomeScreen onVideoSelected={handleVideoSelected} languageSwitch={languageSwitch} />
   }
 
   if (state.analysisStatus === 'running' || state.analysisStatus === 'error') {
@@ -161,10 +165,11 @@ function AppInner() {
         errorMessage={state.errorMessage}
         onCancel={() => {
           window.api.cancelAnalysis()
-          dispatch({ type: 'ANALYSIS_ERROR', message: 'Cancelled' })
+          dispatch({ type: 'ANALYSIS_ERROR', message: copy.app.cancelled })
         }}
         onReturnWelcome={handleReturnWelcome}
         onRetry={() => startAnalysis(state.videoPath!)}
+        languageSwitch={languageSwitch}
       />
     )
   }
@@ -183,11 +188,12 @@ function AppInner() {
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 900, letterSpacing: '-0.02em', color: 'var(--color-text)' }}>
-          Breakpoint · 确认回合片段
+          {copy.common.appName} · {copy.app.reviewTitle}
         </span>
         <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button onClick={handleReturnWelcome} style={topBtnStyle}>返回欢迎页</button>
-          <button onClick={() => startAnalysis(state.videoPath!)} style={topBtnStyle}>重新处理</button>
+          {languageSwitch}
+          <button onClick={handleReturnWelcome} style={topBtnStyle}>{copy.app.returnWelcome}</button>
+          <button onClick={() => startAnalysis(state.videoPath!)} style={topBtnStyle}>{copy.app.rerunAnalysis}</button>
         </div>
       </div>
 
@@ -230,6 +236,27 @@ function AppInner() {
   )
 }
 
+function LanguageSwitch({ language, onChange }: { language: Language; onChange: (language: Language) => void }) {
+  return (
+    <div style={{ display: 'inline-flex', gap: 4, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      {(['en', 'zh'] as Language[]).map((item) => (
+        <button
+          key={item}
+          onClick={() => onChange(item)}
+          aria-label={language === item ? `${LANGUAGE_LABELS[item]} selected` : `Switch to ${LANGUAGE_LABELS[item]}`}
+          style={{
+            ...topBtnStyle,
+            background: language === item ? 'var(--color-green)' : 'var(--color-surface)',
+            color: language === item ? '#fff' : 'var(--color-green-dark)',
+          }}
+        >
+          {LANGUAGE_LABELS[item]}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const topBtnStyle: React.CSSProperties = {
   fontSize: 11,
   fontFamily: 'var(--font-display)',
@@ -244,8 +271,10 @@ const topBtnStyle: React.CSSProperties = {
 
 export default function App() {
   return (
-    <AppProvider>
-      <AppInner />
-    </AppProvider>
+    <LanguageProvider>
+      <AppProvider>
+        <AppInner />
+      </AppProvider>
+    </LanguageProvider>
   )
 }

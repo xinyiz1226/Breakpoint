@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppState, Segment } from '../state/AppState'
+import { useCopy, type Copy } from '../i18n'
 import { getAdjustedTimeRange, getExportActionCopy, getRallyTitle, getReviewTaskSummary, getSegmentTone } from '../viewModels/flowCopy'
 
 interface Props {
@@ -25,11 +26,11 @@ function scoreColor(score: number): string {
   return '#a89f91'
 }
 
-function toneLabel(segment: Segment): string {
+function toneLabel(segment: Segment, copy: Copy): string {
   const tone = getSegmentTone(segment)
-  if (tone === 'highlight') return '高分推荐'
-  if (tone === 'keep') return '建议保留'
-  return '已剔除'
+  if (tone === 'highlight') return copy.rallyQueue.toneHighlight
+  if (tone === 'keep') return copy.rallyQueue.toneKeep
+  return copy.rallyQueue.toneDiscarded
 }
 
 export default function RallyQueue({
@@ -42,9 +43,10 @@ export default function RallyQueue({
   exportProgress,
   exportResult,
 }: Props) {
+  const copy = useCopy()
   const { state, dispatch } = useAppState()
   const { segments, selectedSegmentIndex } = state
-  const summary = getReviewTaskSummary(segments)
+  const summary = getReviewTaskSummary(segments, copy)
   const exporting = exportProgress !== null
   const exportProgressRatio = Math.max(0, Math.min(exportProgress ?? 0, 1))
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
@@ -66,21 +68,21 @@ export default function RallyQueue({
   return (
     <aside style={panelStyle}>
       <div style={headerStyle}>
-        <h2 style={titleStyle}>回合队列</h2>
+        <h2 style={titleStyle}>{copy.rallyQueue.title}</h2>
         <p style={subtitleStyle}>
-          {summary.selectedCount} / {summary.totalCount} 个回合将被导出
+          {copy.rallyQueue.exportCount(summary.selectedCount, summary.totalCount)}
         </p>
       </div>
 
       <div style={batchGridStyle}>
-        <button onClick={() => dispatch({ type: 'INCLUDE_ALL' })} style={batchBtnStyle}>全选</button>
-        <button onClick={() => dispatch({ type: 'RESTORE_RECOMMENDED' })} style={batchBtnStyle}>推荐</button>
-        <button onClick={() => dispatch({ type: 'EXCLUDE_ALL' })} style={batchBtnStyle}>清空</button>
+        <button onClick={() => dispatch({ type: 'INCLUDE_ALL' })} style={batchBtnStyle}>{copy.rallyQueue.includeAll}</button>
+        <button onClick={() => dispatch({ type: 'RESTORE_RECOMMENDED' })} style={batchBtnStyle}>{copy.rallyQueue.restoreRecommended}</button>
+        <button onClick={() => dispatch({ type: 'EXCLUDE_ALL' })} style={batchBtnStyle}>{copy.rallyQueue.excludeAll}</button>
       </div>
 
       <div style={listStyle}>
         {segments.length === 0 ? (
-          <div style={emptyStyle}>没有可确认的回合片段。</div>
+          <div style={emptyStyle}>{copy.rallyQueue.empty}</div>
         ) : segments.map((segment, index) => {
           const isSelected = index === selectedSegmentIndex
           return (
@@ -94,9 +96,10 @@ export default function RallyQueue({
                   onSeekAndPlay(segment.startAdjusted ?? segment.start)
                 }}
                 onToggle={() => dispatch({ type: 'TOGGLE_INCLUDE', index })}
+                copy={copy}
               />
               {isSelected && (
-                <TrimEditor segment={segment} index={index} currentTime={currentTime} onSeek={onSeek} />
+                <TrimEditor segment={segment} index={index} currentTime={currentTime} onSeek={onSeek} copy={copy} />
               )}
             </div>
           )
@@ -110,9 +113,9 @@ export default function RallyQueue({
           </div>
         )}
         <p style={exportSummaryStyle}>
-          已选择 {summary.selectedCount} 个回合。确认列表后，将它们合成为一个精彩合集。
+          {copy.rallyQueue.exportSummary(summary.selectedCount)}
         </p>
-        <p style={exportMetaStyle}>合集约 {summary.selectedDurationLabel}</p>
+        <p style={exportMetaStyle}>{copy.rallyQueue.exportDuration(summary.selectedDurationLabel)}</p>
         {exportResult && (
           <div style={{
             ...exportResultStyle,
@@ -120,13 +123,13 @@ export default function RallyQueue({
           }}>
             <span>{exportResult.message}</span>
             {exportResult.outputPath && (
-              <button onClick={() => onOpenExportFile(exportResult.outputPath!)} style={linkBtnStyle}>打开</button>
+              <button onClick={() => onOpenExportFile(exportResult.outputPath!)} style={linkBtnStyle}>{copy.rallyQueue.openExport}</button>
             )}
           </div>
         )}
         {exporting ? (
           <button onClick={onCancelExport} style={{ ...exportBtnStyle, background: 'var(--color-danger)' }}>
-            取消导出
+            {copy.rallyQueue.cancelExport}
           </button>
         ) : (
           <button
@@ -138,7 +141,7 @@ export default function RallyQueue({
               cursor: summary.selectedCount > 0 ? 'pointer' : 'not-allowed',
             }}
           >
-            {getExportActionCopy(summary.selectedCount, false)} ↗
+            {getExportActionCopy(summary.selectedCount, false, copy)} ↗
           </button>
         )}
       </div>
@@ -152,12 +155,14 @@ function RallyCard({
   isSelected,
   onSelect,
   onToggle,
+  copy,
 }: {
   segment: Segment
   index: number
   isSelected: boolean
   onSelect: () => void
   onToggle: () => void
+  copy: Copy
 }) {
   const range = getAdjustedTimeRange(segment)
   const isEdited = segment.startAdjusted != null || segment.endAdjusted != null
@@ -187,14 +192,14 @@ function RallyCard({
       />
       <div style={cardContentStyle}>
         <div style={cardTitleStyle}>
-          {getRallyTitle(segment)}
-          {isEdited && <span style={editedDotStyle} title="edited" />}
+          {getRallyTitle(segment, copy)}
+          {isEdited && <span style={editedDotStyle} title={copy.common.edited} />}
         </div>
         <div style={cardMetaStyle}>
           #{String(index + 1).padStart(2, '0')} · {range.label} · {range.duration.toFixed(1)}s
         </div>
         <div style={{ ...badgeStyle, color: scoreColor(segment.score) }}>
-          {toneLabel(segment)} · {segment.features.hit_count ?? '?'} 次击球 · 强度 {segment.score.toFixed(2)}
+          {toneLabel(segment, copy)} · {copy.rallyQueue.hits(segment.features.hit_count ?? copy.common.hitCountUnknown)} · {copy.rallyQueue.intensity(segment.score.toFixed(2))}
         </div>
       </div>
     </div>
@@ -206,11 +211,13 @@ function TrimEditor({
   index,
   currentTime,
   onSeek,
+  copy,
 }: {
   segment: Segment
   index: number
   currentTime: number
   onSeek: (time: number) => void
+  copy: Copy
 }) {
   const { dispatch } = useAppState()
   const effectiveStart = segment.startAdjusted ?? segment.start
@@ -294,8 +301,8 @@ function TrimEditor({
   return (
     <div style={trimBoxStyle} onClick={(event) => event.stopPropagation()}>
       <div style={trimHeaderStyle}>
-        <span>开始 <b>{formatTimePrecise(effectiveStart)}</b></span>
-        <span>结束 <b>{formatTimePrecise(effectiveEnd)}</b></span>
+        <span>{copy.rallyQueue.start} <b>{formatTimePrecise(effectiveStart)}</b></span>
+        <span>{copy.rallyQueue.end} <b>{formatTimePrecise(effectiveEnd)}</b></span>
       </div>
       <div style={trimControlsStyle}>
         <div style={nudgeGroupStyle}>
@@ -339,10 +346,10 @@ function TrimEditor({
         </div>
       </div>
       <div style={trimFooterStyle}>
-        <span>左侧微调开始，右侧微调结束。原始：{formatTimePrecise(segment.start)} – {formatTimePrecise(segment.end)}</span>
+        <span>{copy.rallyQueue.trimHelp(formatTimePrecise(segment.start), formatTimePrecise(segment.end))}</span>
         {isEdited && (
           <button onClick={handleReset} style={resetBtnStyle}>
-            重置
+            {copy.rallyQueue.reset}
           </button>
         )}
       </div>

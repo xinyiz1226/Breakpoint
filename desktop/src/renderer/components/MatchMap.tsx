@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { INCLUDE_THRESHOLD, useAppState } from '../state/AppState'
+import { useCopy } from '../i18n'
 import { getAdjustedTimeRange, getSegmentTone } from '../viewModels/flowCopy'
 
 interface Props {
@@ -20,6 +21,7 @@ function toneHeight(tone: ReturnType<typeof getSegmentTone>): number {
 }
 
 export default function MatchMap({ onSeek }: Props) {
+  const copy = useCopy()
   const { state, dispatch } = useAppState()
   const { segments, selectedSegmentIndex, videoDuration } = state
   const [recommendedOnly, setRecommendedOnly] = useState(false)
@@ -37,13 +39,13 @@ export default function MatchMap({ onSeek }: Props) {
     <section style={mapShellStyle}>
       <div style={mapHeaderStyle}>
         <div>
-          <h2 style={mapTitleStyle}>整场比赛地图</h2>
-          <p style={mapSubtitleStyle}>高条是建议保留的回合，灰色是已剔除的等待、拉球和间歇片段。</p>
+          <h2 style={mapTitleStyle}>{copy.matchMap.title}</h2>
+          <p style={mapSubtitleStyle}>{copy.matchMap.subtitle}</p>
         </div>
         <div style={legendStyle}>
-          <span style={legendItemStyle}><i style={{ ...legendDotStyle, background: 'var(--color-accent)' }} />高光</span>
-          <span style={legendItemStyle}><i style={{ ...legendDotStyle, background: 'var(--color-green)' }} />可保留</span>
-          <span style={legendItemStyle}><i style={{ ...legendDotStyle, background: '#c1b8aa' }} />已剔除</span>
+          <span style={legendItemStyle}><i style={{ ...legendDotStyle, background: 'var(--color-accent)' }} />{copy.matchMap.highlight}</span>
+          <span style={legendItemStyle}><i style={{ ...legendDotStyle, background: 'var(--color-green)' }} />{copy.matchMap.keep}</span>
+          <span style={legendItemStyle}><i style={{ ...legendDotStyle, background: '#c1b8aa' }} />{copy.matchMap.discarded}</span>
         </div>
       </div>
 
@@ -58,7 +60,7 @@ export default function MatchMap({ onSeek }: Props) {
           return (
             <button
               key={originalIndex}
-              title={`#${String(originalIndex + 1).padStart(2, '0')} · ${range.label} · 强度 ${segment.score.toFixed(2)}`}
+              title={`#${String(originalIndex + 1).padStart(2, '0')} · ${range.label} · ${copy.matchMap.intensity} ${segment.score.toFixed(2)}`}
               onClick={() => {
                 dispatch({ type: 'SELECT_SEGMENT', index: originalIndex })
                 onSeek(range.start)
@@ -87,7 +89,7 @@ export default function MatchMap({ onSeek }: Props) {
           }} />
         </div>
         <button onClick={() => setRecommendedOnly((value) => !value)} style={filterBtnStyle}>
-          {recommendedOnly ? '显示全部回合' : '只看建议保留'}
+          {recommendedOnly ? copy.matchMap.showAll : copy.matchMap.recommendedOnly}
         </button>
       </div>
     </section>

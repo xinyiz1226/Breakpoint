@@ -1,7 +1,9 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCopy } from '../i18n'
 
 interface Props {
   onVideoSelected: (path: string) => void
+  languageSwitch: ReactNode
 }
 
 const heroPanel: CSSProperties = {
@@ -25,7 +27,8 @@ const actionPanel: CSSProperties = {
   WebkitAppRegion: 'drag',
 } as CSSProperties
 
-export default function WelcomeScreen({ onVideoSelected }: Props) {
+export default function WelcomeScreen({ onVideoSelected, languageSwitch }: Props) {
+  const copy = useCopy()
   const [recent, setRecent] = useState<string[]>([])
   const [appVersion, setAppVersion] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -75,7 +78,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
             marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <span style={{ width: 28, height: 2, background: '#cc4e0e', display: 'inline-block' }} />
-            AI驱动的网球精彩集锦编辑器
+            {copy.welcome.eyebrow}
           </div>
 
           <h1 style={{
@@ -87,7 +90,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
           </h1>
 
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', maxWidth: 300, lineHeight: 1.7 }}>
-            你的精彩回合，自动呈现。Breakpoint 将广播视角的网球比赛或训练录像一键转化为精彩集锦。AI 音频与视觉分析自动识别每一个回合，按激烈程度排序，剔除 70%–80% 的垃圾时间，只留下值得回看的高光时刻。
+            {copy.welcome.description}
           </p>
 
           <div style={{
@@ -95,7 +98,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
             fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.04em',
           }}>
             <span style={{ width: 6, height: 6, background: '#068d6d', borderRadius: '50%', display: 'inline-block' }} />
-            v{appVersion || '0.0.0'} — Desktop
+            v{appVersion || '0.0.0'} — {copy.common.desktop}
           </div>
         </div>
       </div>
@@ -103,12 +106,16 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
       {/* Action panel */}
       <div style={actionPanel}>
         <div style={{ position: 'relative', zIndex: 2, maxWidth: 360, WebkitAppRegion: 'no-drag' } as CSSProperties}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+            {languageSwitch}
+          </div>
+
           <div style={{
             fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700,
             letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--color-text-secondary)',
             marginBottom: 20,
           }}>
-            开始
+            {copy.welcome.startLabel}
           </div>
 
           <button onClick={handleOpen} style={{
@@ -133,10 +140,10 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
             </div>
             <div>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-text)' }}>
-                导入新视频
+                {copy.welcome.importTitle}
               </div>
               <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>
-                选择比赛或练习视频，导入后自动开始处理
+                {copy.welcome.importDetail}
               </div>
             </div>
           </button>
@@ -151,7 +158,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
               background: dragOver ? 'rgba(204,78,14,0.04)' : 'transparent', transition: 'all 0.2s',
             }}
           >
-            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>或把视频文件拖到这里</p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{copy.welcome.dropHint}</p>
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'rgba(110,110,110,0.6)', marginTop: 4 }}>.mp4 · .mov · .avi · .mkv</p>
           </div>
 
@@ -162,7 +169,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
                 letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--color-text-secondary)',
                 marginBottom: 10,
               }}>
-                打开之前的视频
+                {copy.welcome.recentTitle}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {recent.slice(0, 5).map((p) => (
@@ -196,7 +203,7 @@ export default function WelcomeScreen({ onVideoSelected }: Props) {
           position: 'absolute', bottom: 20, left: 48, right: 48,
           display: 'flex', gap: 20, WebkitAppRegion: 'no-drag',
         } as CSSProperties}>
-          {[['Ctrl+O', '导入视频'], ['Ctrl+Q', '退出']].map(([key, label]) => (
+          {[[ 'Ctrl+O', copy.welcome.shortcutImport ], [ 'Ctrl+Q', copy.welcome.shortcutQuit ]].map(([key, label]) => (
             <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--color-text-secondary)' }}>
               <kbd style={{
                 fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 5px',
