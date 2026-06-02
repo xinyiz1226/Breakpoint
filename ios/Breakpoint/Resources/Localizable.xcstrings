@@ -1,0 +1,114 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "welcome.subtitle" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Extract highlight rallies from tennis match footage" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "从网球比赛视频中自动提取精彩回合" } }
+      }
+    },
+    "welcome.openVideo" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Video" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "打开视频" } }
+      }
+    },
+    "welcome.importFile" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Import from Files" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "从文件导入" } }
+      }
+    },
+    "welcome.recent" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Recent Projects" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "最近项目" } }
+      }
+    },
+    "analysis.preparing" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Preparing..." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "准备中..." } }
+      }
+    },
+    "analysis.step.extractAudio" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Extracting Audio" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "提取音频" } }
+      }
+    },
+    "analysis.step.detectHits" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Detecting Hits" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "检测击球" } }
+      }
+    },
+    "analysis.step.segmentPoints" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Segmenting Points" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "分割回合" } }
+      }
+    },
+    "analysis.step.analyzeMotion" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Analyzing Player Motion" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "分析球员动作" } }
+      }
+    },
+    "analysis.step.rankPoints" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ranking Points" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "排名回合" } }
+      }
+    },
+    "analysis.error" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Analysis Failed" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "分析失败" } }
+      }
+    },
+    "analysis.retry" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Retry" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重试" } }
+      }
+    },
+    "common.cancel" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "取消" } }
+      }
+    },
+    "common.back" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Back" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "返回" } }
+      }
+    },
+    "editor.back" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "← Back" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "← 返回" } }
+      }
+    },
+    "queue.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Rally Queue" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "回合队列" } }
+      }
+    },
+    "queue.export" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Export Highlights" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "导出精彩集锦" } }
+      }
+    },
+    "export.complete" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Export complete! Saved to Photos." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "导出完成！已保存到相册。" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
