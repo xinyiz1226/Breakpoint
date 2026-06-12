@@ -363,22 +363,28 @@ assert.match(appSource, /aria-label=\{language === item \? `\$\{LANGUAGE_LABELS\
 const appStateSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'state', 'AppState.tsx'), 'utf8')
 assert.match(appStateSource, /RESTORE_RECOMMENDED/)
 assert.match(appStateSource, /case 'RESTORE_RECOMMENDED'/)
-assert.match(appStateSource, /included: s\.score > INCLUDE_THRESHOLD/)
+assert.match(appStateSource, /included: rally\.score > INCLUDE_THRESHOLD/)
 assert.doesNotMatch(appStateSource, /case 'RESTORE_RECOMMENDED':[\s\S]*startAdjusted: undefined/)
 assert.equal(MIN_SEGMENT_DURATION, 0.5)
-const reducerClampState = {
-  videoPath: null,
+const reducerBatchState = {
+  videos: [
+    { id: 'video-1', path: 'D:\\match\\first.mp4', displayName: 'first.mp4', order: 0, status: 'done', errorMessage: null, currentStep: null, duration: 100, rallyCount: 2 },
+    { id: 'video-2', path: 'D:\\match\\second.mp4', displayName: 'second.mp4', order: 1, status: 'error', errorMessage: 'bad input', currentStep: null, duration: 0, rallyCount: 0 },
+  ],
+  activeVideoId: 'video-1',
+  selectedRallyId: null,
   analysisStatus: 'done',
   currentStep: null,
   errorMessage: null,
-  selectedSegmentIndex: null,
-  videoDuration: 0,
-  segments: [
-    { index: 0, start: 10, end: 12, score: 2, included: true, features: {} },
-    { index: 1, start: 20, end: 24, score: 2, included: true, features: {}, startAdjusted: 21, endAdjusted: 23 },
+  rallies: [
+    { id: 'video-1-rally-0', videoId: 'video-1', sourceIndex: 0, index: 0, start: 10, end: 12, score: 2, included: true, features: {} },
+    { id: 'video-1-rally-1', videoId: 'video-1', sourceIndex: 1, index: 1, start: 20, end: 24, score: 2, included: true, features: {}, startAdjusted: 21, endAdjusted: 23 },
   ],
 }
-assert.deepEqual(plain(reducer(reducerClampState, { type: 'ADJUST_SEGMENT', index: 0, start: 11.8 }).segments[0]), {
+assert.deepEqual(plain(reducer(reducerBatchState, { type: 'ADJUST_RALLY', id: 'video-1-rally-0', start: 11.8 }).rallies[0]), {
+  id: 'video-1-rally-0',
+  videoId: 'video-1',
+  sourceIndex: 0,
   index: 0,
   start: 10,
   end: 12,
@@ -387,7 +393,10 @@ assert.deepEqual(plain(reducer(reducerClampState, { type: 'ADJUST_SEGMENT', inde
   features: {},
   startAdjusted: 11.5,
 })
-assert.deepEqual(plain(reducer(reducerClampState, { type: 'ADJUST_SEGMENT', index: 1, end: 21.2 }).segments[1]), {
+assert.deepEqual(plain(reducer(reducerBatchState, { type: 'ADJUST_RALLY', id: 'video-1-rally-1', end: 21.2 }).rallies[1]), {
+  id: 'video-1-rally-1',
+  videoId: 'video-1',
+  sourceIndex: 1,
   index: 1,
   start: 20,
   end: 24,
@@ -397,7 +406,14 @@ assert.deepEqual(plain(reducer(reducerClampState, { type: 'ADJUST_SEGMENT', inde
   startAdjusted: 21,
   endAdjusted: 21.5,
 })
-assert.deepEqual(plain(reducer(reducerClampState, { type: 'RESTORE_RECOMMENDED' }).segments[1]), {
+assert.equal(reducer(reducerBatchState, { type: 'SELECT_RALLY', id: 'video-1-rally-1' }).selectedRallyId, 'video-1-rally-1')
+assert.equal(reducer(reducerBatchState, { type: 'SET_ACTIVE_VIDEO', id: 'video-2' }).activeVideoId, 'video-2')
+assert.equal(reducer(reducerBatchState, { type: 'VIDEO_ANALYSIS_RETRY', videoId: 'video-2' }).videos[1].status, 'running')
+assert.equal(reducer(reducerBatchState, { type: 'VIDEO_ANALYSIS_ERROR', videoId: 'video-2', message: 'still bad' }).videos[1].errorMessage, 'still bad')
+assert.deepEqual(plain(reducer(reducerBatchState, { type: 'RESTORE_RECOMMENDED' }).rallies[1]), {
+  id: 'video-1-rally-1',
+  videoId: 'video-1',
+  sourceIndex: 1,
   index: 1,
   start: 20,
   end: 24,
