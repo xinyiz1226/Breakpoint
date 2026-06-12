@@ -24,8 +24,15 @@ contextBridge.exposeInMainWorld('api', {
   cancelAnalysis: () => ipcRenderer.invoke('cancel-analysis'),
   cancelExport: () => ipcRenderer.invoke('cancel-export'),
   loadReport: (videoPath: string) => ipcRenderer.invoke('load-report', videoPath),
-  exportHighlights: (videoPath: string, segments: { start: number; end: number }[]) =>
-    ipcRenderer.invoke('export-highlights', videoPath, segments),
+  // exportHighlights: (clips: { videoPath: string; start: number; end: number }[])
+  exportHighlights: (
+    clips: { videoPath: string; start: number; end: number }[] | string,
+    segments?: { start: number; end: number }[],
+  ) =>
+    ipcRenderer.invoke(
+      'export-highlights',
+      typeof clips === 'string' ? (segments ?? []).map((segment) => ({ videoPath: clips, ...segment })) : clips,
+    ),
   onAnalysisProgress: (callback: (event: ProgressEvent) => void) => {
     const handler = (_: unknown, data: ProgressEvent) => callback(data)
     ipcRenderer.on('analysis-progress', handler)

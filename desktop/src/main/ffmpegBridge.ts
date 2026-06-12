@@ -10,7 +10,8 @@ function getFfmpegPath(): string {
   return 'ffmpeg'
 }
 
-interface ExportSegment {
+interface ExportClip {
+  videoPath: string
   start: number
   end: number
 }
@@ -25,13 +26,15 @@ export function setupFfmpegBridge() {
     }
   })
 
-  ipcMain.handle('export-highlights', async (event, videoPath: string, segments: ExportSegment[]) => {
+  ipcMain.handle('export-highlights', async (event, clips: ExportClip[]) => {
     const win = BrowserWindow.fromWebContents(event.sender)
+    const firstClip = clips[0]
+    if (!firstClip) return { error: 'No clips selected for export' }
 
     const result = await dialog.showSaveDialog({
       defaultPath: path.join(
-        path.dirname(videoPath),
-        `${path.basename(videoPath, path.extname(videoPath))}_highlights.mp4`,
+        path.dirname(firstClip.videoPath),
+        `${path.basename(firstClip.videoPath, path.extname(firstClip.videoPath))}_highlights.mp4`,
       ),
       filters: [{ name: 'MP4', extensions: ['mp4'] }],
     })
@@ -39,13 +42,14 @@ export function setupFfmpegBridge() {
     if (result.canceled || !result.filePath) return { cancelled: true }
     const outputPath = result.filePath
 
-    const sorted = [...segments].sort((a, b) => a.start - b.start)
+    const sorted = [...clips].filter((clip) => clip.end > clip.start)
+    if (sorted.length === 0) return { error: 'No valid clips selected for export' }
 
     const inputs: string[] = []
     const filterParts: string[] = []
     for (let i = 0; i < sorted.length; i++) {
-      const seg = sorted[i]
-      inputs.push('-ss', String(seg.start), '-t', String(seg.end - seg.start), '-i', videoPath)
+      const clip = sorted[i]
+      inputs.push('-ss', String(clip.start), '-t', String(clip.end - clip.start), '-i', clip.videoPath)
       filterParts.push(`[${i}:v][${i}:a]`)
     }
 
