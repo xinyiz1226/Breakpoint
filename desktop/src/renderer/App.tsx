@@ -108,6 +108,7 @@ function AppInner() {
     const activeSegments = state.segments
       .filter((s) => s.included)
       .map((s) => ({
+        videoPath: state.videoPath!,
         start: s.startAdjusted ?? s.start,
         end: s.endAdjusted ?? s.end,
       }))
@@ -121,7 +122,7 @@ function AppInner() {
       setExportProgress(Math.min(event.time / totalDuration, 1))
     })
 
-    const result = await window.api.exportHighlights(state.videoPath, activeSegments)
+    const result = await window.api.exportHighlights(activeSegments)
     cleanup()
     setExportProgress(null)
 
