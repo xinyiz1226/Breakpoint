@@ -25,7 +25,7 @@ interface Segment {
 declare global {
   interface Window {
     api: {
-      openFileDialog: () => Promise<string | null>
+      openFileDialog: () => Promise<string[] | null>
       getRecentProjects: () => Promise<string[]>
       getAppVersion: () => Promise<string>
       checkResources: () => Promise<{ ok: boolean; missing: string[] }>
