@@ -53,6 +53,15 @@ const {
 } = loadTsModule(path.join('src', 'renderer', 'analysisFlow.ts'))
 
 const {
+  createVideoRecords,
+  createRalliesForVideo,
+  getSortedRallies,
+  getRalliesForVideo,
+  getExportClips,
+  getVideoDisplayName,
+} = loadTsModule(path.join('src', 'renderer', 'batchFlow.ts'))
+
+const {
   MIN_SEGMENT_DURATION,
   reducer,
 } = loadTsModule(path.join('src', 'renderer', 'state', 'AppState.tsx'))
@@ -71,6 +80,52 @@ const {
 } = loadTsModule(path.join('src', 'renderer', 'i18n', 'language.ts'))
 
 const plain = (value) => JSON.parse(JSON.stringify(value))
+
+const batchVideos = createVideoRecords([
+  'D:\\match\\first.mp4',
+  'D:\\match\\second.mov',
+])
+assert.equal(batchVideos.length, 2)
+assert.equal(batchVideos[0].id, 'video-1')
+assert.equal(batchVideos[0].path, 'D:\\match\\first.mp4')
+assert.equal(batchVideos[0].displayName, 'first.mp4')
+assert.equal(batchVideos[0].order, 0)
+assert.equal(batchVideos[0].status, 'pending')
+assert.equal(batchVideos[1].id, 'video-2')
+assert.equal(batchVideos[1].displayName, 'second.mov')
+assert.equal(getVideoDisplayName('C:\\clips\\demo.avi'), 'demo.avi')
+
+const firstVideoRallies = createRalliesForVideo(batchVideos[0], [
+  { index: 2, start: 30, end: 38, score: 1.8, features: { hit_count: 7 } },
+  { index: 1, start: 10, end: 22, score: 2.5, features: { hit_count: 16 } },
+])
+const secondVideoRallies = createRalliesForVideo(batchVideos[1], [
+  { index: 0, start: 5, end: 12, score: 2.1, features: {} },
+])
+assert.deepEqual(firstVideoRallies.map((r) => r.id), ['video-1-rally-2', 'video-1-rally-1'])
+assert.equal(firstVideoRallies[0].videoId, 'video-1')
+assert.equal(firstVideoRallies[0].sourceIndex, 2)
+assert.equal(firstVideoRallies[0].included, true)
+assert.equal(firstVideoRallies[1].included, true)
+
+const sortedRallies = getSortedRallies([
+  secondVideoRallies[0],
+  firstVideoRallies[0],
+  firstVideoRallies[1],
+], batchVideos)
+assert.deepEqual(sortedRallies.map((r) => r.id), ['video-1-rally-1', 'video-1-rally-2', 'video-2-rally-0'])
+assert.deepEqual(getRalliesForVideo(sortedRallies, 'video-1').map((r) => r.id), ['video-1-rally-1', 'video-1-rally-2'])
+assert.deepEqual(plain(getExportClips(sortedRallies, batchVideos)), [
+  { videoPath: 'D:\\match\\first.mp4', start: 10, end: 22 },
+  { videoPath: 'D:\\match\\first.mp4', start: 30, end: 38 },
+  { videoPath: 'D:\\match\\second.mov', start: 5, end: 12 },
+])
+assert.deepEqual(plain(getExportClips([
+  { ...firstVideoRallies[1], startAdjusted: 11, endAdjusted: 20 },
+  { ...secondVideoRallies[0], included: false },
+], batchVideos)), [
+  { videoPath: 'D:\\match\\first.mp4', start: 11, end: 20 },
+])
 
 assert.equal(LANGUAGE_STORAGE_KEY, 'bp-desktop-language')
 assert.equal(detectDefaultLanguage('zh-CN'), 'zh')
