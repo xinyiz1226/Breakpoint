@@ -1,5 +1,3 @@
-import type { RallySegment, VideoRecord } from './state/AppState'
-
 const AUTO_INCLUDE_THRESHOLD = 1.7
 
 interface AnalysisSegment {
@@ -14,6 +12,32 @@ export interface ExportClip {
   videoPath: string
   start: number
   end: number
+}
+
+export interface VideoRecord {
+  id: string
+  path: string
+  displayName: string
+  order: number
+  status: 'pending' | 'running' | 'done' | 'error'
+  errorMessage: string | null
+  currentStep: unknown | null
+  duration: number
+  rallyCount: number
+}
+
+export interface RallySegment {
+  id: string
+  videoId: string
+  sourceIndex: number
+  index: number
+  start: number
+  end: number
+  score: number
+  features: Record<string, number>
+  included: boolean
+  startAdjusted?: number
+  endAdjusted?: number
 }
 
 export function getVideoDisplayName(path: string): string {
