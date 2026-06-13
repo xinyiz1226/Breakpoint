@@ -317,6 +317,13 @@ assert.match(analysisScreenSource, /copy\.analysisScreen\.runningTitle/)
 assert.doesNotMatch(analysisScreenSource, /分析遇到问题/)
 assert.doesNotMatch(analysisScreenSource, /正在分析视频/)
 
+const batchVideoListSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'BatchVideoList.tsx'), 'utf8')
+assert.match(batchVideoListSource, /export default function BatchVideoList/)
+assert.match(batchVideoListSource, /videos: VideoRecord\[\]/)
+assert.match(batchVideoListSource, /onRetry: \(videoId: string\) => void/)
+assert.match(batchVideoListSource, /copy\.batch\.retryVideo/)
+assert.match(batchVideoListSource, /copy\.batch\.successfulVideos/)
+
 const welcomeSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'WelcomeScreen.tsx'), 'utf8')
 assert.match(welcomeSource, /useCopy/)
 assert.match(welcomeSource, /languageSwitch/)
