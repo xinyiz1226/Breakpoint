@@ -321,6 +321,12 @@ const welcomeSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'compon
 assert.match(welcomeSource, /useCopy/)
 assert.match(welcomeSource, /languageSwitch/)
 assert.doesNotMatch(welcomeSource, /导入新视频|打开之前的视频|或把视频文件拖到这里/)
+assert.match(welcomeSource, /onVideosSelected: \(paths: string\[\]\) => void/)
+assert.match(welcomeSource, /const paths = await window\.api\.openFileDialog\(\)/)
+assert.match(welcomeSource, /if \(paths && paths\.length > 0\) onVideosSelected\(paths\)/)
+assert.match(welcomeSource, /Array\.from\(e\.dataTransfer\.files\)/)
+assert.match(welcomeSource, /onVideosSelected\(paths\)/)
+assert.doesNotMatch(welcomeSource, /onVideoSelected/)
 
 const matchMapSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'MatchMap.tsx'), 'utf8')
 assert.match(matchMapSource, /const safeDuration = Math\.max\(videoDuration, 1\)/)
