@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { VideoRecord } from '../state/AppState'
 import { useCopy, type Copy } from '../i18n'
 
@@ -37,8 +38,10 @@ export default function BatchVideoList({ videos, activeVideoId, onSelect, onRetr
         {videos.map((video, index) => {
           const isActive = video.id === activeVideoId
           const color = statusColor(video)
+          const statusText = statusLabel(video, copy)
           return (
-            <div
+            <button
+              type="button"
               key={video.id}
               onClick={() => onSelect(video.id)}
               style={{
@@ -55,7 +58,7 @@ export default function BatchVideoList({ videos, activeVideoId, onSelect, onRetr
                 {video.errorMessage && <div style={errorStyle}>{video.errorMessage}</div>}
               </div>
               <div style={statusWrapStyle}>
-                <strong style={{ ...statusStyle, color }}>{statusLabel(video, copy)}</strong>
+                <strong style={{ ...statusStyle, color }}>{statusText} · {video.rallyCount}</strong>
                 {video.status === 'error' && (
                   <span
                     role="button"
@@ -75,7 +78,7 @@ export default function BatchVideoList({ videos, activeVideoId, onSelect, onRetr
                   </span>
                 )}
               </div>
-            </div>
+            </button>
           )
         })}
       </div>
@@ -83,17 +86,17 @@ export default function BatchVideoList({ videos, activeVideoId, onSelect, onRetr
   )
 }
 
-const panelStyle: React.CSSProperties = { width: 320, minWidth: 280, maxWidth: 360, margin: 16, marginRight: 0, border: '1px solid #e5d2bd', borderRadius: 10, background: 'rgba(255,250,244,0.92)', display: 'flex', flexDirection: 'column', minHeight: 0, boxShadow: '0 12px 28px rgba(50,35,20,0.06)' }
-const headerStyle: React.CSSProperties = { padding: '18px 16px 10px' }
-const titleStyle: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 23, fontWeight: 900, color: 'var(--color-text)', margin: 0, letterSpacing: '-0.04em' }
-const subtitleStyle: React.CSSProperties = { fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 4, marginBottom: 0 }
-const listStyle: React.CSSProperties = { flex: 1, overflowY: 'auto', minHeight: 0, padding: '0 16px 16px' }
-const cardStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'start', gap: 10, border: '1px solid #e5d2bd', borderRadius: 8, padding: 12, cursor: 'pointer', marginBottom: 10, transition: 'border-color 0.15s, background 0.15s' }
-const progressPillStyle: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-text-secondary)', border: '1px solid #e1cbb5', borderRadius: 999, padding: '3px 7px', whiteSpace: 'nowrap' }
-const cardContentStyle: React.CSSProperties = { minWidth: 0 }
-const cardTitleStyle: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 900, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
-const cardPathStyle: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
-const errorStyle: React.CSSProperties = { color: 'var(--color-danger)', fontSize: 11, lineHeight: 1.45, marginTop: 8 }
-const statusWrapStyle: React.CSSProperties = { display: 'grid', gap: 8, justifyItems: 'end', textAlign: 'right' }
-const statusStyle: React.CSSProperties = { fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }
-const retryStyle: React.CSSProperties = { fontSize: 11, fontWeight: 900, color: 'var(--color-accent)', textDecoration: 'underline', cursor: 'pointer' }
+const panelStyle: CSSProperties = { width: 320, minWidth: 280, maxWidth: 360, margin: 16, marginRight: 0, border: '1px solid #e5d2bd', borderRadius: 10, background: 'rgba(255,250,244,0.92)', display: 'flex', flexDirection: 'column', minHeight: 0, boxShadow: '0 12px 28px rgba(50,35,20,0.06)' }
+const headerStyle: CSSProperties = { padding: '18px 16px 10px' }
+const titleStyle: CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 23, fontWeight: 900, color: 'var(--color-text)', margin: 0, letterSpacing: '-0.04em' }
+const subtitleStyle: CSSProperties = { fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 4, marginBottom: 0 }
+const listStyle: CSSProperties = { flex: 1, overflowY: 'auto', minHeight: 0, padding: '0 16px 16px' }
+const cardStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'start', gap: 10, border: '1px solid #e5d2bd', borderRadius: 8, padding: 12, cursor: 'pointer', marginBottom: 10, transition: 'border-color 0.15s, background 0.15s', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit' }
+const progressPillStyle: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-text-secondary)', border: '1px solid #e1cbb5', borderRadius: 999, padding: '3px 7px', whiteSpace: 'nowrap' }
+const cardContentStyle: CSSProperties = { minWidth: 0 }
+const cardTitleStyle: CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 900, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+const cardPathStyle: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+const errorStyle: CSSProperties = { color: 'var(--color-danger)', fontSize: 11, lineHeight: 1.45, marginTop: 8 }
+const statusWrapStyle: CSSProperties = { display: 'grid', gap: 8, justifyItems: 'end', textAlign: 'right' }
+const statusStyle: CSSProperties = { fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }
+const retryStyle: CSSProperties = { fontSize: 11, fontWeight: 900, color: 'var(--color-accent)', textDecoration: 'underline', cursor: 'pointer' }

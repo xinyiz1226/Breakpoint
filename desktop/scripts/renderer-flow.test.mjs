@@ -319,10 +319,13 @@ assert.doesNotMatch(analysisScreenSource, /正在分析视频/)
 
 const batchVideoListSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'BatchVideoList.tsx'), 'utf8')
 assert.match(batchVideoListSource, /export default function BatchVideoList/)
+assert.match(batchVideoListSource, /import type \{ CSSProperties \} from 'react'/)
 assert.match(batchVideoListSource, /videos: VideoRecord\[\]/)
 assert.match(batchVideoListSource, /onRetry: \(videoId: string\) => void/)
 assert.match(batchVideoListSource, /copy\.batch\.retryVideo/)
 assert.match(batchVideoListSource, /copy\.batch\.successfulVideos/)
+assert.match(batchVideoListSource, /<button[\s\S]*onClick=\{\(\) => onSelect\(video\.id\)\}/)
+assert.match(batchVideoListSource, /\{statusText\} · \{video\.rallyCount\}/)
 
 const welcomeSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'WelcomeScreen.tsx'), 'utf8')
 assert.match(welcomeSource, /useCopy/)
