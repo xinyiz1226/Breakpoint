@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { INCLUDE_THRESHOLD, useAppState } from '../state/AppState'
 import { useCopy } from '../i18n'
+import { getRalliesForVideo } from '../batchFlow'
 import { getAdjustedTimeRange, getSegmentTone } from '../viewModels/flowCopy'
 
 interface Props {
@@ -23,13 +24,15 @@ function toneHeight(tone: ReturnType<typeof getSegmentTone>): number {
 export default function MatchMap({ onSeek }: Props) {
   const copy = useCopy()
   const { state, dispatch } = useAppState()
-  const { segments, selectedSegmentIndex, videoDuration } = state
+  const { rallies, selectedRallyId, activeVideoId, videos } = state
+  const activeVideo = videos.find((video) => video.id === activeVideoId)
+  const segments = activeVideoId ? getRalliesForVideo(rallies, activeVideoId) : []
+  const videoDuration = activeVideo?.duration ?? 0
   const [recommendedOnly, setRecommendedOnly] = useState(false)
 
   const visibleSegments = useMemo(() => {
     return segments
-      .map((segment, originalIndex) => ({ segment, originalIndex }))
-      .filter(({ segment }) => !recommendedOnly || segment.score > INCLUDE_THRESHOLD || segment.included)
+      .filter((segment) => !recommendedOnly || segment.score > INCLUDE_THRESHOLD || segment.included)
   }, [recommendedOnly, segments])
 
   if (videoDuration <= 0 || segments.length === 0) return null
@@ -50,19 +53,20 @@ export default function MatchMap({ onSeek }: Props) {
       </div>
 
       <div style={barViewportStyle}>
-        {visibleSegments.map(({ segment, originalIndex }) => {
+        {visibleSegments.map((segment) => {
           const range = getAdjustedTimeRange(segment)
           const left = (segment.start / safeDuration) * 100
           const width = Math.max(((segment.end - segment.start) / safeDuration) * 100, 0.55)
-          const isSelected = originalIndex === selectedSegmentIndex
+          const isSelected = segment.id === selectedRallyId
           const tone = getSegmentTone(segment)
 
           return (
             <button
-              key={originalIndex}
-              title={`#${String(originalIndex + 1).padStart(2, '0')} · ${range.label} · ${copy.matchMap.intensity} ${segment.score.toFixed(2)}`}
+              key={segment.id}
+              title={`#${String(segment.sourceIndex + 1).padStart(2, '0')} · ${range.label} · ${copy.matchMap.intensity} ${segment.score.toFixed(2)}`}
               onClick={() => {
-                dispatch({ type: 'SELECT_SEGMENT', index: originalIndex })
+                dispatch({ type: 'SELECT_RALLY', id: segment.id })
+                dispatch({ type: 'SET_ACTIVE_VIDEO', id: segment.videoId })
                 onSeek(range.start)
               }}
               style={{

@@ -223,7 +223,7 @@ assert.equal(getExportActionCopy(3, false, COPY.zh), '导出已选择的回合')
 assert.equal(getExportActionCopy(3, true, COPY.zh), '正在导出 3 个回合')
 assert.equal(formatClipDuration(61.8), '1:01')
 const highMultiHitSegment = {
-  index: 7,
+  sourceIndex: 7,
   start: 1463,
   end: 1484,
   score: 2.6,
@@ -250,7 +250,7 @@ assert.deepEqual(plain(getAdjustedTimeRange({
 })
 
 assert.equal(getRallyTitle({
-  index: 3,
+  sourceIndex: 3,
   start: 20,
   end: 25,
   score: 1.8,
@@ -267,7 +267,7 @@ assert.equal(getSegmentTone({
 }), 'keep')
 
 assert.equal(getRallyTitle({
-  index: 4,
+  sourceIndex: 4,
   start: 40,
   end: 55,
   score: 1.1,
@@ -353,13 +353,24 @@ assert.doesNotMatch(welcomeSource, /onVideoSelected/)
 
 const matchMapSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'MatchMap.tsx'), 'utf8')
 assert.match(matchMapSource, /const safeDuration = Math\.max\(videoDuration, 1\)/)
-assert.match(matchMapSource, /key=\{originalIndex\}/)
+assert.match(matchMapSource, /key=\{segment\.id\}/)
 assert.doesNotMatch(matchMapSource, /\/ videoDuration\) \* 100/)
 assert.match(matchMapSource, /useCopy/)
+assert.match(matchMapSource, /getRalliesForVideo/)
+assert.match(matchMapSource, /activeVideoId/)
+assert.match(matchMapSource, /selectedRallyId/)
+assert.match(matchMapSource, /dispatch\(\{ type: 'SELECT_RALLY', id: segment\.id \}\)/)
+assert.match(matchMapSource, /dispatch\(\{ type: 'SET_ACTIVE_VIDEO', id: segment\.videoId \}\)/)
 assert.doesNotMatch(matchMapSource, /整场比赛地图|只看建议保留|显示全部回合/)
 
 const rallyQueueSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'RallyQueue.tsx'), 'utf8')
 assert.match(rallyQueueSource, /useCopy/)
+assert.match(rallyQueueSource, /videosById: Map<string, VideoRecord>/)
+assert.match(rallyQueueSource, /copy\.rallyQueue\.sourceLabel/)
+assert.match(rallyQueueSource, /dispatch\(\{ type: 'SELECT_RALLY', id: segment\.id \}\)/)
+assert.match(rallyQueueSource, /dispatch\(\{ type: 'SET_ACTIVE_VIDEO', id: segment\.videoId \}\)/)
+assert.match(rallyQueueSource, /dispatch\(\{ type: 'TOGGLE_INCLUDE', id: segment\.id \}\)/)
+assert.match(rallyQueueSource, /dispatch\(\{ type: 'ADJUST_RALLY', id: segment\.id/)
 assert.doesNotMatch(rallyQueueSource, /回合队列|全选|推荐|清空|取消导出|重置/)
 
 const videoPlayerSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'VideoPlayer.tsx'), 'utf8')

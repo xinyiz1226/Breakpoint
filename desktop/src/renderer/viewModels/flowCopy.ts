@@ -1,4 +1,4 @@
-import type { ProgressStep, Segment } from '../state/AppState'
+import type { ProgressStep, RallySegment, Segment } from '../state/AppState'
 import type { Copy } from '../i18n'
 
 interface AnalysisStageView {
@@ -106,7 +106,7 @@ export function formatClipDuration(seconds: number): string {
 }
 
 export function getReviewTaskSummary(
-  segments: Pick<Segment, 'included' | 'start' | 'end' | 'startAdjusted' | 'endAdjusted'>[],
+  segments: Pick<RallySegment, 'included' | 'start' | 'end' | 'startAdjusted' | 'endAdjusted'>[],
   copy: Copy,
 ) {
   const selected = segments.filter((segment) => segment.included)
@@ -132,8 +132,8 @@ export function getExportActionCopy(selectedCount: number, exporting: boolean, c
 
 export type SegmentTone = 'highlight' | 'keep' | 'discarded'
 
-function formatSegmentNumber(index: number): string {
-  return `#${String(index + 1).padStart(2, '0')}`
+function formatSegmentNumber(sourceIndex: number): string {
+  return `#${String(sourceIndex + 1).padStart(2, '0')}`
 }
 
 export function getAdjustedTimeRange(segment: Pick<Segment, 'start' | 'end' | 'startAdjusted' | 'endAdjusted'>) {
@@ -155,7 +155,7 @@ export function getSegmentTone(segment: Pick<Segment, 'score' | 'included'>): Se
 }
 
 export function getRallyTitle(
-  segment: Pick<Segment, 'index' | 'start' | 'end' | 'score' | 'features'>,
+  segment: Pick<RallySegment, 'sourceIndex' | 'start' | 'end' | 'score' | 'features'>,
   copy: Copy,
 ): string {
   const duration = Math.max(segment.end - segment.start, 0)
@@ -169,10 +169,10 @@ export function getRallyTitle(
   if (parts.length > 0) {
     const joined = parts.join(copy.flow.rallyTitle.joinPartsWithSpace ? ' ' : '')
     return copy.flow.rallyTitle.joinPartsWithSpace
-      ? `${joined} ${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
-      : `${joined}${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.index)}`
+      ? `${joined} ${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.sourceIndex)}`
+      : `${joined}${copy.flow.rallyTitle.suffix} ${formatSegmentNumber(segment.sourceIndex)}`
   }
 
   const fallback = segment.score > 1.7 ? copy.flow.rallyTitle.recommended : copy.flow.rallyTitle.regular
-  return `${fallback} ${formatSegmentNumber(segment.index)}`
+  return `${fallback} ${formatSegmentNumber(segment.sourceIndex)}`
 }

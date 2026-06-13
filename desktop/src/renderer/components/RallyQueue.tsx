@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useAppState, Segment } from '../state/AppState'
+import { useAppState, type RallySegment, type VideoRecord } from '../state/AppState'
 import { useCopy, type Copy } from '../i18n'
+import { getSortedRallies } from '../batchFlow'
 import { getAdjustedTimeRange, getExportActionCopy, getRallyTitle, getReviewTaskSummary, getSegmentTone } from '../viewModels/flowCopy'
 
 interface Props {
@@ -26,7 +27,7 @@ function scoreColor(score: number): string {
   return '#a89f91'
 }
 
-function toneLabel(segment: Segment, copy: Copy): string {
+function toneLabel(segment: RallySegment, copy: Copy): string {
   const tone = getSegmentTone(segment)
   if (tone === 'highlight') return copy.rallyQueue.toneHighlight
   if (tone === 'keep') return copy.rallyQueue.toneKeep
@@ -45,14 +46,17 @@ export default function RallyQueue({
 }: Props) {
   const copy = useCopy()
   const { state, dispatch } = useAppState()
-  const { segments, selectedSegmentIndex } = state
+  const { videos, rallies, selectedRallyId } = state
+  const segments = getSortedRallies(rallies, videos)
+  const videosById: Map<string, VideoRecord> = new Map(videos.map((video) => [video.id, video]))
   const summary = getReviewTaskSummary(segments, copy)
   const exporting = exportProgress !== null
   const exportProgressRatio = Math.max(0, Math.min(exportProgress ?? 0, 1))
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
 
   useEffect(() => {
-    const selectedEl = selectedSegmentIndex != null ? itemRefs.current[selectedSegmentIndex] : null
+    const selectedIndex = segments.findIndex((segment) => segment.id === selectedRallyId)
+    const selectedEl = selectedIndex >= 0 ? itemRefs.current[selectedIndex] : null
     const scroller = selectedEl?.parentElement
     if (!selectedEl || !scroller) return
 
@@ -63,7 +67,7 @@ export default function RallyQueue({
     } else if (selectedBottom > scroller.scrollTop + scroller.clientHeight) {
       scroller.scrollTo({ top: selectedBottom - scroller.clientHeight + 8, behavior: 'smooth' })
     }
-  }, [selectedSegmentIndex])
+  }, [segments, selectedRallyId])
 
   return (
     <aside style={panelStyle}>
@@ -84,22 +88,23 @@ export default function RallyQueue({
         {segments.length === 0 ? (
           <div style={emptyStyle}>{copy.rallyQueue.empty}</div>
         ) : segments.map((segment, index) => {
-          const isSelected = index === selectedSegmentIndex
+          const isSelected = segment.id === selectedRallyId
           return (
-            <div key={segment.index} ref={(el) => { itemRefs.current[index] = el }} style={itemWrapStyle}>
+            <div key={segment.id} ref={(el) => { itemRefs.current[index] = el }} style={itemWrapStyle}>
               <RallyCard
                 segment={segment}
-                index={index}
                 isSelected={isSelected}
                 onSelect={() => {
-                  dispatch({ type: 'SELECT_SEGMENT', index })
+                  dispatch({ type: 'SELECT_RALLY', id: segment.id })
+                  dispatch({ type: 'SET_ACTIVE_VIDEO', id: segment.videoId })
                   onSeekAndPlay(segment.startAdjusted ?? segment.start)
                 }}
-                onToggle={() => dispatch({ type: 'TOGGLE_INCLUDE', index })}
+                onToggle={() => dispatch({ type: 'TOGGLE_INCLUDE', id: segment.id })}
+                sourceLabel={copy.rallyQueue.sourceLabel(videosById.get(segment.videoId)?.displayName ?? segment.videoId)}
                 copy={copy}
               />
               {isSelected && (
-                <TrimEditor segment={segment} index={index} currentTime={currentTime} onSeek={onSeek} copy={copy} />
+                <TrimEditor segment={segment} currentTime={currentTime} onSeek={onSeek} copy={copy} />
               )}
             </div>
           )
@@ -151,17 +156,17 @@ export default function RallyQueue({
 
 function RallyCard({
   segment,
-  index,
   isSelected,
   onSelect,
   onToggle,
+  sourceLabel,
   copy,
 }: {
-  segment: Segment
-  index: number
+  segment: RallySegment
   isSelected: boolean
   onSelect: () => void
   onToggle: () => void
+  sourceLabel: string
   copy: Copy
 }) {
   const range = getAdjustedTimeRange(segment)
@@ -195,8 +200,9 @@ function RallyCard({
           {getRallyTitle(segment, copy)}
           {isEdited && <span style={editedDotStyle} title={copy.common.edited} />}
         </div>
+        <div style={sourceStyle}>{sourceLabel}</div>
         <div style={cardMetaStyle}>
-          #{String(index + 1).padStart(2, '0')} · {range.label} · {range.duration.toFixed(1)}s
+          #{String(segment.sourceIndex + 1).padStart(2, '0')} · {range.label} · {range.duration.toFixed(1)}s
         </div>
         <div style={{ ...badgeStyle, color: scoreColor(segment.score) }}>
           {toneLabel(segment, copy)} · {copy.rallyQueue.hits(segment.features.hit_count ?? copy.common.hitCountUnknown)} · {copy.rallyQueue.intensity(segment.score.toFixed(2))}
@@ -208,13 +214,11 @@ function RallyCard({
 
 function TrimEditor({
   segment,
-  index,
   currentTime,
   onSeek,
   copy,
 }: {
-  segment: Segment
-  index: number
+  segment: RallySegment
   currentTime: number
   onSeek: (time: number) => void
   copy: Copy
@@ -239,15 +243,15 @@ function TrimEditor({
 
   const updateStart = useCallback((time: number) => {
     const next = Math.round(clampStart(time) * 10) / 10
-    dispatch({ type: 'ADJUST_SEGMENT', index, start: next })
+    dispatch({ type: 'ADJUST_RALLY', id: segment.id, start: next })
     onSeek(next)
-  }, [clampStart, dispatch, index, onSeek])
+  }, [clampStart, dispatch, onSeek, segment.id])
 
   const updateEnd = useCallback((time: number) => {
     const next = Math.round(clampEnd(time) * 10) / 10
-    dispatch({ type: 'ADJUST_SEGMENT', index, end: next })
+    dispatch({ type: 'ADJUST_RALLY', id: segment.id, end: next })
     onSeek(next)
-  }, [clampEnd, dispatch, index, onSeek])
+  }, [clampEnd, dispatch, onSeek, segment.id])
 
   const cleanupDrag = useCallback(() => {
     dragCleanupRef.current?.()
@@ -291,7 +295,7 @@ function TrimEditor({
   }, [cleanupDrag, percentToTime, updateEnd, updateStart])
 
   const handleReset = () => {
-    dispatch({ type: 'ADJUST_SEGMENT', index, start: undefined, end: undefined })
+    dispatch({ type: 'ADJUST_RALLY', id: segment.id, start: undefined, end: undefined })
     onSeek(segment.start)
   }
 
@@ -370,6 +374,7 @@ const cardStyle: React.CSSProperties = { display: 'flex', gap: 12, border: '1px 
 const checkboxStyle: React.CSSProperties = { width: 22, height: 22, accentColor: 'var(--color-green)', flexShrink: 0, cursor: 'pointer' }
 const cardContentStyle: React.CSSProperties = { minWidth: 0, flex: 1 }
 const cardTitleStyle: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 900, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+const sourceStyle: React.CSSProperties = { fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
 const cardMetaStyle: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 4 }
 const badgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, marginTop: 6 }
 const editedDotStyle: React.CSSProperties = { width: 6, height: 6, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block', marginLeft: 6, verticalAlign: 'middle' }
