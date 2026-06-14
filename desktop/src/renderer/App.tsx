@@ -25,6 +25,7 @@ function AppInner() {
   const [exportProgress, setExportProgress] = useState<number | null>(null)
   const [exportResult, setExportResult] = useState<{ status: 'complete' | 'error'; message: string; outputPath?: string } | null>(null)
   const batchCancelledRef = useRef(false)
+  const batchRunIdRef = useRef(0)
 
   useEffect(() => {
     window.api.checkResources().then((res) => {
@@ -46,10 +47,16 @@ function AppInner() {
     setSeekCounter((c) => c + 1)
   }, [])
 
-  const analyzeVideo = useCallback(async (video: VideoRecord) => {
+  const isCurrentBatchRun = useCallback((runId: number) => (
+    batchRunIdRef.current === runId && !batchCancelledRef.current
+  ), [])
+
+  const analyzeVideo = useCallback(async (video: VideoRecord, runId: number) => {
+    if (!isCurrentBatchRun(runId)) return false
     dispatch({ type: 'VIDEO_ANALYSIS_START', videoId: video.id })
 
     const existing = await window.api.loadReport(video.path)
+    if (!isCurrentBatchRun(runId)) return false
     if (hasReusableAnalysisReport(existing)) {
       const rallies = createRalliesForVideo(video, existing)
       dispatch({ type: 'VIDEO_ANALYSIS_DONE', videoId: video.id, rallies })
@@ -57,6 +64,10 @@ function AppInner() {
     }
 
     const cleanup = window.api.onAnalysisProgress((event) => {
+      if (!isCurrentBatchRun(runId)) {
+        cleanup()
+        return
+      }
       if (event.type === 'step') {
         dispatch({
           type: 'VIDEO_ANALYSIS_STEP',
@@ -86,12 +97,14 @@ function AppInner() {
 
     const result = await window.api.runAnalysis(video.path)
     cleanup()
+    if (!isCurrentBatchRun(runId)) return false
     if (result.error) {
       dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: result.error })
       return false
     }
 
     const report = await window.api.loadReport(video.path)
+    if (!isCurrentBatchRun(runId)) return false
     if (!hasReusableAnalysisReport(report)) {
       dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: copy.app.reportMissing })
       return false
@@ -100,16 +113,19 @@ function AppInner() {
     const rallies = createRalliesForVideo(video, report)
     dispatch({ type: 'VIDEO_ANALYSIS_DONE', videoId: video.id, rallies })
     return true
-  }, [copy.app.reportMissing, copy.app.unknownError, dispatch])
+  }, [copy.app.reportMissing, copy.app.unknownError, dispatch, isCurrentBatchRun])
 
   const startBatchAnalysis = useCallback(async (videosToAnalyze: VideoRecord[]) => {
+    batchRunIdRef.current += 1
+    const runId = batchRunIdRef.current
     batchCancelledRef.current = false
     dispatch({ type: 'BATCH_ANALYSIS_START' })
     for (const video of videosToAnalyze) {
-      await analyzeVideo(video)
-      if (batchCancelledRef.current) break
+      if (batchCancelledRef.current || batchRunIdRef.current !== runId) break
+      await analyzeVideo(video, runId)
+      if (batchCancelledRef.current || batchRunIdRef.current !== runId) break
     }
-    if (!batchCancelledRef.current) {
+    if (!batchCancelledRef.current && batchRunIdRef.current === runId) {
       dispatch({ type: 'BATCH_ANALYSIS_DONE' })
     }
   }, [analyzeVideo, dispatch])
@@ -158,6 +174,7 @@ function AppInner() {
   }, [copy, state.rallies, state.videos])
 
   const handleReturnWelcome = useCallback(() => {
+    batchRunIdRef.current += 1
     batchCancelledRef.current = true
     window.api.cancelAnalysis()
     setSeekTarget(null)
@@ -196,6 +213,7 @@ function AppInner() {
         step={runningVideo?.currentStep ?? state.currentStep}
         errorMessage={state.errorMessage ?? runningVideo?.errorMessage ?? null}
         onCancel={() => {
+          batchRunIdRef.current += 1
           batchCancelledRef.current = true
           window.api.cancelAnalysis()
           if (runningVideo) {
