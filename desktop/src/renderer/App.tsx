@@ -130,19 +130,23 @@ function AppInner() {
     }
   }, [analyzeVideo, dispatch])
 
-  const handleVideosSelected = useCallback((paths: string[]) => {
+  const handleVideosSelected = useCallback(async (paths: string[]) => {
+    batchRunIdRef.current += 1
+    batchCancelledRef.current = true
+    await window.api.cancelAnalysis()
     const videos = createVideoRecords(paths)
     dispatch({ type: 'CREATE_BATCH', videos })
     setExportResult(null)
     startBatchAnalysis(videos)
   }, [dispatch, startBatchAnalysis])
 
-  const handleRetryVideo = useCallback((videoId: string) => {
+  const handleRetryVideo = useCallback(async (videoId: string) => {
     const video = state.videos.find((item) => item.id === videoId)
     if (!video) {
       setExportResult({ status: 'error', message: `${copy.app.exportFailedPrefix}${copy.app.unknownError}` })
       return
     }
+    await window.api.cancelAnalysis()
     dispatch({ type: 'VIDEO_ANALYSIS_RETRY', videoId })
     startBatchAnalysis([video])
   }, [copy.app.exportFailedPrefix, copy.app.unknownError, dispatch, startBatchAnalysis, state.videos])

@@ -4,6 +4,14 @@ import path from 'node:path'
 import fs from 'node:fs'
 
 let analysisProcess: ChildProcess | null = null
+let analysisCancellationPromise: Promise<void> | null = null
+
+function clearAnalysisProcess(child: ChildProcess) {
+  if (analysisProcess === child) {
+    analysisProcess = null
+    analysisCancellationPromise = null
+  }
+}
 
 function getEngineCommand(): { cmd: string; args: string[] } {
   if (app.isPackaged) {
@@ -94,7 +102,7 @@ export function setupPythonBridge() {
         if (stdoutBuf.trim()) {
           handleStdoutLine(stdoutBuf)
         }
-        analysisProcess = null
+        clearAnalysisProcess(child)
         if (completionError) {
           settle({ error: completionError })
         } else if (code !== 0) {
@@ -108,17 +116,36 @@ export function setupPythonBridge() {
       })
 
       child.on('error', (err) => {
-        analysisProcess = null
+        clearAnalysisProcess(child)
         settle({ error: err.message })
       })
     })
   })
 
-  ipcMain.handle('cancel-analysis', () => {
-    if (analysisProcess) {
-      analysisProcess.kill()
-      analysisProcess = null
+  ipcMain.handle('cancel-analysis', async () => {
+    const processToCancel = analysisProcess
+    if (!processToCancel) {
+      return
     }
+
+    if (!analysisCancellationPromise) {
+      analysisCancellationPromise = new Promise<void>((resolve) => {
+        let settled = false
+        const settle = () => {
+          if (settled) return
+          settled = true
+          processToCancel.off('close', settle)
+          processToCancel.off('error', settle)
+          resolve()
+        }
+
+        processToCancel.once('close', settle)
+        processToCancel.once('error', settle)
+      })
+      processToCancel.kill()
+    }
+
+    return analysisCancellationPromise
   })
 
   ipcMain.handle('load-report', async (_event, reportOrVideoPath: string) => {
