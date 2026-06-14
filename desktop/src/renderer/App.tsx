@@ -51,16 +51,19 @@ function AppInner() {
     batchRunIdRef.current === runId && !batchCancelledRef.current
   ), [])
 
-  const analyzeVideo = useCallback(async (video: VideoRecord, runId: number) => {
+  const analyzeVideo = useCallback(async (video: VideoRecord, runId: number, options?: { reuseReport?: boolean }) => {
     if (!isCurrentBatchRun(runId)) return false
     dispatch({ type: 'VIDEO_ANALYSIS_START', videoId: video.id })
 
-    const existing = await window.api.loadReport(video.path)
-    if (!isCurrentBatchRun(runId)) return false
-    if (hasReusableAnalysisReport(existing)) {
-      const rallies = createRalliesForVideo(video, existing)
-      dispatch({ type: 'VIDEO_ANALYSIS_DONE', videoId: video.id, rallies })
-      return true
+    const reuseReport = options?.reuseReport !== false
+    if (reuseReport) {
+      const existing = await window.api.loadReport(video.path)
+      if (!isCurrentBatchRun(runId)) return false
+      if (hasReusableAnalysisReport(existing)) {
+        const rallies = createRalliesForVideo(video, existing)
+        dispatch({ type: 'VIDEO_ANALYSIS_DONE', videoId: video.id, rallies })
+        return true
+      }
     }
 
     const cleanup = window.api.onAnalysisProgress((event) => {
@@ -115,14 +118,14 @@ function AppInner() {
     return true
   }, [copy.app.reportMissing, copy.app.unknownError, dispatch, isCurrentBatchRun])
 
-  const startBatchAnalysis = useCallback(async (videosToAnalyze: VideoRecord[]) => {
+  const startBatchAnalysis = useCallback(async (videosToAnalyze: VideoRecord[], options?: { reuseReport?: boolean }) => {
     batchRunIdRef.current += 1
     const runId = batchRunIdRef.current
     batchCancelledRef.current = false
     dispatch({ type: 'BATCH_ANALYSIS_START' })
     for (const video of videosToAnalyze) {
       if (batchCancelledRef.current || batchRunIdRef.current !== runId) break
-      await analyzeVideo(video, runId)
+      await analyzeVideo(video, runId, options)
       if (batchCancelledRef.current || batchRunIdRef.current !== runId) break
     }
     if (!batchCancelledRef.current && batchRunIdRef.current === runId) {
@@ -148,7 +151,7 @@ function AppInner() {
     }
     await window.api.cancelAnalysis()
     dispatch({ type: 'VIDEO_ANALYSIS_RETRY', videoId })
-    startBatchAnalysis([video])
+    startBatchAnalysis([video], { reuseReport: false })
   }, [copy.app.exportFailedPrefix, copy.app.unknownError, dispatch, startBatchAnalysis, state.videos])
 
   const handleExport = useCallback(async () => {
