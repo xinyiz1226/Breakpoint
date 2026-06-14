@@ -46,14 +46,19 @@ export function setupFfmpegBridge() {
     if (sorted.length === 0) return { error: 'No valid clips selected for export' }
 
     const inputs: string[] = []
-    const filterParts: string[] = []
+    const filterChains: string[] = []
+    const concatParts: string[] = []
     for (let i = 0; i < sorted.length; i++) {
       const clip = sorted[i]
       inputs.push('-ss', String(clip.start), '-t', String(clip.end - clip.start), '-i', clip.videoPath)
-      filterParts.push(`[${i}:v][${i}:a]`)
+      filterChains.push(
+        `[${i}:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v${i}]`,
+        `[${i}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a${i}]`,
+      )
+      concatParts.push(`[v${i}][a${i}]`)
     }
 
-    const filterStr = filterParts.join('') + `concat=n=${sorted.length}:v=1:a=1[outv][outa]`
+    const filterStr = `${filterChains.join(';')};${concatParts.join('')}concat=n=${sorted.length}:v=1:a=1[outv][outa]`
 
     const ffmpeg = getFfmpegPath()
     const cmd = [ffmpeg, '-y', ...inputs, '-filter_complex', filterStr, '-map', '[outv]', '-map', '[outa]', outputPath]
