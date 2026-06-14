@@ -197,6 +197,7 @@ function AppInner() {
   const selectedRally = state.selectedRallyId ? state.rallies.find((rally) => rally.id === state.selectedRallyId) : null
   const runningVideoIndex = state.videos.findIndex((video) => video.status === 'running')
   const runningVideo = runningVideoIndex >= 0 ? state.videos[runningVideoIndex] : null
+  const retryVideo = runningVideo ?? state.videos.find((video) => video.status === 'error') ?? null
   const batchLabel = runningVideoIndex >= 0 ? copy.batch.videoProgress(runningVideoIndex + 1, state.videos.length) : undefined
 
   if (resourceError) {
@@ -230,7 +231,7 @@ function AppInner() {
         }}
         onReturnWelcome={handleReturnWelcome}
         onRetry={() => {
-          if (runningVideo) handleRetryVideo(runningVideo.id)
+          if (retryVideo) handleRetryVideo(retryVideo.id)
         }}
         batchLabel={batchLabel}
         languageSwitch={languageSwitch}
