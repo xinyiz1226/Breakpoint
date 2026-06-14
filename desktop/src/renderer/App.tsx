@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AppProvider, useAppState, applyAutoInclude } from './state/AppState'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppProvider, useAppState } from './state/AppState'
 import WelcomeScreen from './components/WelcomeScreen'
 import VideoPlayer from './components/VideoPlayer'
 import AnalysisScreen from './components/AnalysisScreen'
 import RallyQueue from './components/RallyQueue'
 import MatchMap from './components/MatchMap'
+import BatchVideoList from './components/BatchVideoList'
 import { hasReusableAnalysisReport } from './analysisFlow'
+import { createRalliesForVideo, createVideoRecords, getExportClips } from './batchFlow'
+import type { VideoRecord } from './state/AppState'
 import { LanguageProvider, useCopy, useLanguage, LANGUAGE_LABELS, type Language } from './i18n'
+import { getExportActionCopy } from './viewModels/flowCopy'
 
 function AppInner() {
   const { state, dispatch } = useAppState()
@@ -18,6 +22,9 @@ function AppInner() {
   const [currentTime, setCurrentTime] = useState(0)
   const [autoPlay, setAutoPlay] = useState(false)
   const [resourceError, setResourceError] = useState<string | null>(null)
+  const [exportProgress, setExportProgress] = useState<number | null>(null)
+  const [exportResult, setExportResult] = useState<{ status: 'complete' | 'error'; message: string; outputPath?: string } | null>(null)
+  const batchCancelledRef = useRef(false)
 
   useEffect(() => {
     window.api.checkResources().then((res) => {
@@ -39,82 +46,99 @@ function AppInner() {
     setSeekCounter((c) => c + 1)
   }, [])
 
-  const startAnalysis = useCallback(async (videoPath: string) => {
-    dispatch({ type: 'ANALYSIS_START' })
+  const analyzeVideo = useCallback(async (video: VideoRecord) => {
+    dispatch({ type: 'VIDEO_ANALYSIS_START', videoId: video.id })
+
+    const existing = await window.api.loadReport(video.path)
+    if (hasReusableAnalysisReport(existing)) {
+      const rallies = createRalliesForVideo(video, existing)
+      dispatch({ type: 'VIDEO_ANALYSIS_DONE', videoId: video.id, rallies })
+      return true
+    }
 
     const cleanup = window.api.onAnalysisProgress((event) => {
       if (event.type === 'step') {
         dispatch({
-          type: 'ANALYSIS_STEP',
+          type: 'VIDEO_ANALYSIS_STEP',
+          videoId: video.id,
           step: { step: event.step!, total: event.total!, label: event.label! },
         })
       } else if (event.type === 'step_done') {
         dispatch({
-          type: 'ANALYSIS_STEP',
+          type: 'VIDEO_ANALYSIS_STEP',
+          videoId: video.id,
           step: {
             step: event.step!,
-            total: state.currentStep?.total ?? 4,
-            label: state.currentStep?.label ?? '',
+            total: event.total ?? 4,
+            label: event.label ?? '',
             elapsed: event.elapsed,
           },
         })
       } else if (event.type === 'progress') {
-        dispatch({ type: 'ANALYSIS_SUB_PROGRESS', current: event.current!, total: event.sub_total! })
+        dispatch({ type: 'VIDEO_ANALYSIS_SUB_PROGRESS', videoId: video.id, current: event.current!, total: event.sub_total! })
       } else if (event.type === 'complete') {
         cleanup()
-        const reportSource = event.report_path ?? videoPath
-        window.api.loadReport(reportSource).then((segments) => {
-          if (segments) {
-            dispatch({
-              type: 'ANALYSIS_DONE',
-              segments: applyAutoInclude(segments.map((s) => ({ ...s, included: false }))),
-            })
-          } else {
-            dispatch({ type: 'ANALYSIS_ERROR', message: copy.app.reportMissing })
-          }
-        })
       } else if (event.type === 'error') {
         cleanup()
-        dispatch({ type: 'ANALYSIS_ERROR', message: event.message ?? copy.app.unknownError })
+        dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: event.message ?? copy.app.unknownError })
       }
     })
 
-    const result = await window.api.runAnalysis(videoPath)
+    const result = await window.api.runAnalysis(video.path)
+    cleanup()
     if (result.error) {
-      cleanup()
-      dispatch({ type: 'ANALYSIS_ERROR', message: result.error })
+      dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: result.error })
+      return false
     }
-  }, [copy.app.reportMissing, copy.app.unknownError, dispatch, state.currentStep])
 
-  const handleVideoSelected = useCallback(async (path: string) => {
-    dispatch({ type: 'SET_VIDEO', path })
-
-    const existing = await window.api.loadReport(path)
-    if (hasReusableAnalysisReport(existing)) {
-      dispatch({
-        type: 'LOAD_SEGMENTS',
-        segments: applyAutoInclude(existing.map((s) => ({ ...s, included: false }))),
-      })
-    } else {
-      startAnalysis(path)
+    const report = await window.api.loadReport(video.path)
+    if (!hasReusableAnalysisReport(report)) {
+      dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: copy.app.reportMissing })
+      return false
     }
-  }, [dispatch, startAnalysis])
 
-  const [exportProgress, setExportProgress] = useState<number | null>(null)
-  const [exportResult, setExportResult] = useState<{ status: 'complete' | 'error'; message: string; outputPath?: string } | null>(null)
+    const rallies = createRalliesForVideo(video, report)
+    dispatch({ type: 'VIDEO_ANALYSIS_DONE', videoId: video.id, rallies })
+    return true
+  }, [copy.app.reportMissing, copy.app.unknownError, dispatch])
+
+  const startBatchAnalysis = useCallback(async (videosToAnalyze: VideoRecord[]) => {
+    batchCancelledRef.current = false
+    dispatch({ type: 'BATCH_ANALYSIS_START' })
+    for (const video of videosToAnalyze) {
+      await analyzeVideo(video)
+      if (batchCancelledRef.current) break
+    }
+    if (!batchCancelledRef.current) {
+      dispatch({ type: 'BATCH_ANALYSIS_DONE' })
+    }
+  }, [analyzeVideo, dispatch])
+
+  const handleVideosSelected = useCallback((paths: string[]) => {
+    const videos = createVideoRecords(paths)
+    dispatch({ type: 'CREATE_BATCH', videos })
+    setExportResult(null)
+    startBatchAnalysis(videos)
+  }, [dispatch, startBatchAnalysis])
+
+  const handleRetryVideo = useCallback((videoId: string) => {
+    const video = state.videos.find((item) => item.id === videoId)
+    if (!video) {
+      setExportResult({ status: 'error', message: `${copy.app.exportFailedPrefix}${copy.app.unknownError}` })
+      return
+    }
+    dispatch({ type: 'VIDEO_ANALYSIS_RETRY', videoId })
+    startBatchAnalysis([video])
+  }, [copy.app.exportFailedPrefix, copy.app.unknownError, dispatch, startBatchAnalysis, state.videos])
 
   const handleExport = useCallback(async () => {
-    if (!state.videoPath) return
-    const activeSegments = state.segments
-      .filter((s) => s.included)
-      .map((s) => ({
-        videoPath: state.videoPath!,
-        start: s.startAdjusted ?? s.start,
-        end: s.endAdjusted ?? s.end,
-      }))
-    if (activeSegments.length === 0) return
+    const clips = getExportClips(state.rallies, state.videos)
+    if (clips.length === 0) {
+      setExportResult({ status: 'error', message: getExportActionCopy(0, false, copy) })
+      return
+    }
 
-    const totalDuration = activeSegments.reduce((sum, s) => sum + (s.end - s.start), 0)
+    const totalDuration = clips.reduce((sum, clip) => sum + (clip.end - clip.start), 0)
     setExportProgress(0)
     setExportResult(null)
 
@@ -122,7 +146,7 @@ function AppInner() {
       setExportProgress(Math.min(event.time / totalDuration, 1))
     })
 
-    const result = await window.api.exportHighlights(activeSegments)
+    const result = await window.api.exportHighlights(clips)
     cleanup()
     setExportProgress(null)
 
@@ -131,9 +155,10 @@ function AppInner() {
     } else if (!result.cancelled) {
       setExportResult({ status: 'complete', message: copy.app.exportComplete, outputPath: result.outputPath })
     }
-  }, [copy.app.exportComplete, copy.app.exportFailedPrefix, state.videoPath, state.segments])
+  }, [copy, state.rallies, state.videos])
 
   const handleReturnWelcome = useCallback(() => {
+    batchCancelledRef.current = true
     window.api.cancelAnalysis()
     setSeekTarget(null)
     setSeekCounter(0)
@@ -143,6 +168,12 @@ function AppInner() {
     setExportResult(null)
     dispatch({ type: 'CLOSE_VIDEO' })
   }, [dispatch])
+
+  const activeVideo = state.videos.find((video) => video.id === state.activeVideoId) ?? null
+  const selectedRally = state.selectedRallyId ? state.rallies.find((rally) => rally.id === state.selectedRallyId) : null
+  const runningVideoIndex = state.videos.findIndex((video) => video.status === 'running')
+  const runningVideo = runningVideoIndex >= 0 ? state.videos[runningVideoIndex] : null
+  const batchLabel = runningVideoIndex >= 0 ? copy.batch.videoProgress(runningVideoIndex + 1, state.videos.length) : undefined
 
   if (resourceError) {
     return (
@@ -155,21 +186,28 @@ function AppInner() {
     )
   }
 
-  if (!state.videoPath) {
-    return <WelcomeScreen onVideoSelected={handleVideoSelected} languageSwitch={languageSwitch} />
+  if (state.videos.length === 0) {
+    return <WelcomeScreen onVideosSelected={handleVideosSelected} languageSwitch={languageSwitch} />
   }
 
   if (state.analysisStatus === 'running' || state.analysisStatus === 'error') {
     return (
       <AnalysisScreen
-        step={state.currentStep}
-        errorMessage={state.errorMessage}
+        step={runningVideo?.currentStep ?? state.currentStep}
+        errorMessage={state.errorMessage ?? runningVideo?.errorMessage ?? null}
         onCancel={() => {
+          batchCancelledRef.current = true
           window.api.cancelAnalysis()
-          dispatch({ type: 'ANALYSIS_ERROR', message: copy.app.cancelled })
+          if (runningVideo) {
+            dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: runningVideo.id, message: copy.app.cancelled })
+          }
+          dispatch({ type: 'BATCH_ANALYSIS_ERROR', message: copy.app.cancelled })
         }}
         onReturnWelcome={handleReturnWelcome}
-        onRetry={() => startAnalysis(state.videoPath!)}
+        onRetry={() => {
+          if (runningVideo) handleRetryVideo(runningVideo.id)
+        }}
+        batchLabel={batchLabel}
         languageSwitch={languageSwitch}
       />
     )
@@ -194,25 +232,31 @@ function AppInner() {
         <div style={{ display: 'flex', gap: 8, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {languageSwitch}
           <button onClick={handleReturnWelcome} style={topBtnStyle}>{copy.app.returnWelcome}</button>
-          <button onClick={() => startAnalysis(state.videoPath!)} style={topBtnStyle}>{copy.app.rerunAnalysis}</button>
+          {activeVideo && <button onClick={() => handleRetryVideo(activeVideo.id)} style={topBtnStyle}>{copy.app.rerunAnalysis}</button>}
         </div>
       </div>
 
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', minHeight: 0 }}>
+        <BatchVideoList
+          videos={state.videos}
+          activeVideoId={state.activeVideoId}
+          onSelect={(videoId) => dispatch({ type: 'SET_ACTIVE_VIDEO', id: videoId })}
+          onRetry={handleRetryVideo}
+        />
+
         <main style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto', minWidth: 0, minHeight: 0 }}>
           <section style={{ margin: 16, marginBottom: 16, borderRadius: 9, overflow: 'hidden', background: '#063b2d', minHeight: 0 }}>
-            <VideoPlayer
-              videoPath={state.videoPath}
-              seekTo={seekTarget}
-              seekKey={seekCounter}
-              autoPlay={autoPlay}
-              pauseAt={state.selectedSegmentIndex != null ? (() => {
-                const seg = state.segments[state.selectedSegmentIndex!]
-                return seg.endAdjusted ?? seg.end
-              })() : null}
-              onTimeUpdate={(t) => setCurrentTime(t)}
-              onDurationChange={(d) => dispatch({ type: 'SET_DURATION', duration: d })}
-            />
+            {activeVideo && (
+              <VideoPlayer
+                videoPath={activeVideo.path}
+                seekTo={seekTarget}
+                seekKey={seekCounter}
+                autoPlay={autoPlay}
+                pauseAt={selectedRally ? selectedRally.endAdjusted ?? selectedRally.end : null}
+                onTimeUpdate={(t) => setCurrentTime(t)}
+                onDurationChange={(duration) => dispatch({ type: 'SET_VIDEO_DURATION', videoId: activeVideo.id, duration })}
+              />
+            )}
           </section>
 
           {state.analysisStatus === 'done' && (
