@@ -166,6 +166,18 @@ function updateVideo(state: AppState, videoId: string, updater: (video: VideoRec
   }
 }
 
+function clearVideoRalliesForRerun(state: AppState, videoId: string): AppState {
+  const selectedRallyBelongsToVideo = state.selectedRallyId
+    ? state.rallies.some((rally) => rally.id === state.selectedRallyId && rally.videoId === videoId)
+    : false
+
+  return {
+    ...state,
+    rallies: state.rallies.filter((rally) => rally.videoId !== videoId),
+    selectedRallyId: selectedRallyBelongsToVideo ? null : state.selectedRallyId,
+  }
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'CREATE_BATCH':
@@ -180,12 +192,17 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, analysisStatus: 'error', errorMessage: action.message, currentStep: null }
     case 'VIDEO_ANALYSIS_START':
     case 'VIDEO_ANALYSIS_RETRY':
-      return updateVideo({ ...state, analysisStatus: 'running', errorMessage: null }, action.videoId, (video) => ({
-        ...video,
-        status: 'running',
-        errorMessage: null,
-        currentStep: null,
-      }))
+      return updateVideo(
+        clearVideoRalliesForRerun({ ...state, analysisStatus: 'running', errorMessage: null }, action.videoId),
+        action.videoId,
+        (video) => ({
+          ...video,
+          status: 'running',
+          errorMessage: null,
+          currentStep: null,
+          rallyCount: 0,
+        }),
+      )
     case 'VIDEO_ANALYSIS_STEP':
       return updateVideo({ ...state, currentStep: action.step }, action.videoId, (video) => ({
         ...video,

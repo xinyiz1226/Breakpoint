@@ -102,6 +102,7 @@ const firstVideoRallies = createRalliesForVideo(batchVideos[0], [
 const secondVideoRallies = createRalliesForVideo(batchVideos[1], [
   { index: 0, start: 5, end: 12, score: 2.1, features: {} },
 ])
+const completedBatchVideos = batchVideos.map((video) => ({ ...video, status: 'done' }))
 assert.deepEqual(firstVideoRallies.map((r) => r.id), ['video-1-rally-2', 'video-1-rally-1'])
 assert.equal(firstVideoRallies[0].videoId, 'video-1')
 assert.equal(firstVideoRallies[0].sourceIndex, 2)
@@ -112,10 +113,10 @@ const sortedRallies = getSortedRallies([
   secondVideoRallies[0],
   firstVideoRallies[0],
   firstVideoRallies[1],
-], batchVideos)
+], completedBatchVideos)
 assert.deepEqual(sortedRallies.map((r) => r.id), ['video-1-rally-1', 'video-1-rally-2', 'video-2-rally-0'])
 assert.deepEqual(getRalliesForVideo(sortedRallies, 'video-1').map((r) => r.id), ['video-1-rally-1', 'video-1-rally-2'])
-assert.deepEqual(plain(getExportClips(sortedRallies, batchVideos)), [
+assert.deepEqual(plain(getExportClips(sortedRallies, completedBatchVideos)), [
   { videoPath: 'D:\\match\\first.mp4', start: 10, end: 22 },
   { videoPath: 'D:\\match\\first.mp4', start: 30, end: 38 },
   { videoPath: 'D:\\match\\second.mov', start: 5, end: 12 },
@@ -123,9 +124,13 @@ assert.deepEqual(plain(getExportClips(sortedRallies, batchVideos)), [
 assert.deepEqual(plain(getExportClips([
   { ...firstVideoRallies[1], startAdjusted: 11, endAdjusted: 20 },
   { ...secondVideoRallies[0], included: false },
-], batchVideos)), [
+], completedBatchVideos)), [
   { videoPath: 'D:\\match\\first.mp4', start: 11, end: 20 },
 ])
+assert.deepEqual(plain(getExportClips(sortedRallies, [
+  { ...completedBatchVideos[0], status: 'running' },
+  { ...completedBatchVideos[1], status: 'error' },
+])), [])
 
 assert.equal(LANGUAGE_STORAGE_KEY, 'bp-desktop-language')
 assert.equal(detectDefaultLanguage('zh-CN'), 'zh')
@@ -530,6 +535,22 @@ assert.equal(reducer(reducerBatchState, { type: 'SELECT_RALLY', id: 'video-1-ral
 assert.equal(reducer(reducerBatchState, { type: 'SET_ACTIVE_VIDEO', id: 'video-2' }).activeVideoId, 'video-2')
 assert.equal(reducer(reducerBatchState, { type: 'VIDEO_ANALYSIS_RETRY', videoId: 'video-2' }).videos[1].status, 'running')
 assert.equal(reducer(reducerBatchState, { type: 'VIDEO_ANALYSIS_ERROR', videoId: 'video-2', message: 'still bad' }).videos[1].errorMessage, 'still bad')
+for (const actionType of ['VIDEO_ANALYSIS_START', 'VIDEO_ANALYSIS_RETRY']) {
+  const staleBatchState = {
+    ...reducerBatchState,
+    selectedRallyId: 'video-1-rally-1',
+    rallies: [
+      ...reducerBatchState.rallies,
+      { id: 'video-2-rally-0', videoId: 'video-2', sourceIndex: 0, index: 0, start: 30, end: 34, score: 2, included: true, features: {} },
+    ],
+  }
+  const rerunState = reducer(staleBatchState, { type: actionType, videoId: 'video-1' })
+  assert.deepEqual(rerunState.rallies.map((rally) => rally.id), ['video-2-rally-0'])
+  assert.equal(rerunState.selectedRallyId, null)
+  assert.equal(rerunState.videos[0].rallyCount, 0)
+  assert.equal(rerunState.videos[1].rallyCount, 0)
+}
+assert.equal(reducer({ ...reducerBatchState, selectedRallyId: 'video-1-rally-1' }, { type: 'VIDEO_ANALYSIS_RETRY', videoId: 'video-2' }).selectedRallyId, 'video-1-rally-1')
 assert.deepEqual(plain(reducer(reducerBatchState, { type: 'RESTORE_RECOMMENDED' }).rallies[1]), {
   id: 'video-1-rally-1',
   videoId: 'video-1',

@@ -63,10 +63,10 @@ export function getRalliesForVideo(rallies: RallySegment[], videoId: string): Ra
 }
 
 export function getExportClips(rallies: RallySegment[], videos: VideoRecord[]): ExportClip[] {
-  const pathByVideo = new Map(videos.map((video) => [video.id, video.path]))
+  const pathByDoneVideo = new Map(videos.filter((video) => video.status === 'done').map((video) => [video.id, video.path]))
   return getSortedRallies(rallies.filter((rally) => rally.included), videos)
     .map((rally) => {
-      const videoPath = pathByVideo.get(rally.videoId)
+      const videoPath = pathByDoneVideo.get(rally.videoId)
       if (!videoPath) return null
       return {
         videoPath,
