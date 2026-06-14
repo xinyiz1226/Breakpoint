@@ -383,6 +383,7 @@ assert.match(rallyQueueSource, /dispatch\(\{ type: 'ADJUST_RALLY', id: segment\.
 assert.doesNotMatch(rallyQueueSource, /回合队列|全选|推荐|清空|取消导出|重置/)
 
 const videoPlayerSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'VideoPlayer.tsx'), 'utf8')
+assert.match(videoPlayerSource, /useEffect\(\(\) => \{\s*setPlaying\(false\)\s*setCurrentTime\(0\)\s*setDuration\(0\)\s*pauseFiredRef\.current = false\s*\}, \[videoPath\]\)/)
 assert.match(videoPlayerSource, /const playerRootStyle: React\.CSSProperties/)
 assert.match(videoPlayerSource, /const videoViewportStyle: React\.CSSProperties/)
 assert.match(videoPlayerSource, /const videoElementStyle: React\.CSSProperties/)

@@ -21,6 +21,16 @@ export default function VideoPlayer({ videoPath, onTimeUpdate, onDurationChange,
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const pauseAtRef = useRef<number | null>(null)
+  const pauseFiredRef = useRef(false)
+  pauseAtRef.current = pauseAt ?? null
+
+  useEffect(() => {
+    setPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
+    pauseFiredRef.current = false
+  }, [videoPath])
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current
@@ -43,10 +53,6 @@ export default function VideoPlayer({ videoPath, onTimeUpdate, onDurationChange,
       }
     }
   }, [seekTo, seekKey, autoPlay])
-
-  const pauseAtRef = useRef<number | null>(null)
-  const pauseFiredRef = useRef(false)
-  pauseAtRef.current = pauseAt ?? null
 
   useEffect(() => {
     pauseFiredRef.current = false
