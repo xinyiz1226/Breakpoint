@@ -404,6 +404,7 @@ const pythonBridgeExecutableSource = pythonBridgeSource.replace(/\/\/.*$/gm, '')
 const ffmpegExecutableSource = ffmpegSource.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 const cancelAnalysisHandlerSource = pythonBridgeExecutableSource.match(/ipcMain\.handle\('cancel-analysis'[\s\S]*?\n\s*\}\)\s*\n\s*ipcMain\.handle\('load-report'/)?.[0] ?? ''
 const handleVideosSelectedSource = appExecutableSource.match(/const handleVideosSelected = useCallback\([\s\S]*?\n\s*\}, \[dispatch, startBatchAnalysis\]\)/)?.[0] ?? ''
+const handleRetryVideoSource = appExecutableSource.match(/const handleRetryVideo = useCallback\(async \(videoId: string\) => \{([\s\S]*?)\n\s*\}, \[/)?.[1] ?? ''
 assert.match(mainSource, /properties: \['openFile', 'multiSelections'\]/)
 assert.match(mainSource, /return filePaths/)
 assert.match(ffmpegSource, /interface ExportClip/)
@@ -448,6 +449,9 @@ assert.match(appExecutableSource, /const runId = batchRunIdRef\.current/)
 assert.match(appExecutableSource, /analyzeVideo\(video, runId\)/)
 assert.match(appExecutableSource, /batchRunIdRef\.current !== runId/)
 assert.match(handleVideosSelectedSource, /async \(paths: string\[\]\) => \{[\s\S]*await window\.api\.cancelAnalysis\(\)[\s\S]*dispatch\(\{ type: 'CREATE_BATCH', videos \}\)[\s\S]*startBatchAnalysis\(videos\)/)
+assert.match(handleRetryVideoSource, /await window\.api\.cancelAnalysis\(\)/)
+assert.match(handleRetryVideoSource, /startBatchAnalysis\(\[video\]\)/)
+assert.ok(handleRetryVideoSource.indexOf('await window.api.cancelAnalysis()') < handleRetryVideoSource.indexOf('startBatchAnalysis([video])'))
 assert.match(appExecutableSource, /const handleReturnWelcome[\s\S]*batchRunIdRef\.current \+= 1[\s\S]*window\.api\.cancelAnalysis\(\)/)
 assert.match(appSource, /if \(runningVideo\) \{[\s\S]*dispatch\(\{ type: 'VIDEO_ANALYSIS_ERROR', videoId: runningVideo\.id, message: copy\.app\.cancelled \}\)[\s\S]*\}\s*dispatch\(\{ type: 'BATCH_ANALYSIS_ERROR', message: copy\.app\.cancelled \}\)/)
 assert.match(appSource, /dispatch\(\{ type: 'CREATE_BATCH', videos \}\)/)
