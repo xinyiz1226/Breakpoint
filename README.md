@@ -34,7 +34,7 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 4. **Edit** — Click any rally to preview; adjust start/end times and toggle inclusion. Confirm your selection before export.
 5. **Export** — Click "Export" to compile the selected rallies into a single highlight `.mp4` video
 
-![Editor](docs/Images/Editor_English.jpg)
+![Editor](docs/Images/Edit_English.jpg)
 
 ## Tech Stack
 
