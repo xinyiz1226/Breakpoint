@@ -166,15 +166,17 @@ function updateVideo(state: AppState, videoId: string, updater: (video: VideoRec
   }
 }
 
-function clearVideoRalliesForRerun(state: AppState, videoId: string): AppState {
-  const selectedRallyBelongsToVideo = state.selectedRallyId
-    ? state.rallies.some((rally) => rally.id === state.selectedRallyId && rally.videoId === videoId)
-    : false
+function selectedRallyBelongsToVideo(state: AppState, videoId: string | null): boolean {
+  return !!state.selectedRallyId
+    && !!videoId
+    && state.rallies.some((rally) => rally.id === state.selectedRallyId && rally.videoId === videoId)
+}
 
+function clearVideoRalliesForRerun(state: AppState, videoId: string): AppState {
   return {
     ...state,
     rallies: state.rallies.filter((rally) => rally.videoId !== videoId),
-    selectedRallyId: selectedRallyBelongsToVideo ? null : state.selectedRallyId,
+    selectedRallyId: selectedRallyBelongsToVideo(state, videoId) ? null : state.selectedRallyId,
   }
 }
 
@@ -237,7 +239,14 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_VIDEO_DURATION':
       return updateVideo(state, action.videoId, (video) => ({ ...video, duration: action.duration }))
     case 'SET_ACTIVE_VIDEO':
-      return { ...state, activeVideoId: action.id }
+      if (action.id === state.activeVideoId) {
+        return { ...state, activeVideoId: action.id }
+      }
+      return {
+        ...state,
+        activeVideoId: action.id,
+        selectedRallyId: selectedRallyBelongsToVideo(state, action.id) ? state.selectedRallyId : null,
+      }
     case 'SELECT_RALLY':
       return { ...state, selectedRallyId: action.id }
     case 'TOGGLE_INCLUDE':

@@ -543,6 +543,23 @@ assert.deepEqual(plain(reducer(reducerBatchState, { type: 'ADJUST_RALLY', id: 'v
 })
 assert.equal(reducer(reducerBatchState, { type: 'SELECT_RALLY', id: 'video-1-rally-1' }).selectedRallyId, 'video-1-rally-1')
 assert.equal(reducer(reducerBatchState, { type: 'SET_ACTIVE_VIDEO', id: 'video-2' }).activeVideoId, 'video-2')
+const sourceSwitchState = {
+  ...reducerBatchState,
+  videos: completedBatchVideos,
+  activeVideoId: batchVideos[0].id,
+  rallies: [
+    ...firstVideoRallies,
+    ...secondVideoRallies,
+  ],
+}
+assert.equal(
+  reducer({ ...sourceSwitchState, selectedRallyId: firstVideoRallies[0].id }, { type: 'SET_ACTIVE_VIDEO', id: batchVideos[1].id }).selectedRallyId,
+  null,
+)
+assert.equal(
+  reducer({ ...sourceSwitchState, selectedRallyId: secondVideoRallies[0].id }, { type: 'SET_ACTIVE_VIDEO', id: batchVideos[1].id }).selectedRallyId,
+  secondVideoRallies[0].id,
+)
 assert.equal(reducer(reducerBatchState, { type: 'VIDEO_ANALYSIS_RETRY', videoId: 'video-2' }).videos[1].status, 'running')
 assert.equal(reducer(reducerBatchState, { type: 'VIDEO_ANALYSIS_ERROR', videoId: 'video-2', message: 'still bad' }).videos[1].errorMessage, 'still bad')
 for (const actionType of ['VIDEO_ANALYSIS_START', 'VIDEO_ANALYSIS_RETRY']) {
