@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppState, type RallySegment, type VideoRecord } from '../state/AppState'
 import { useCopy, type Copy } from '../i18n'
 import { getSortedRallies } from '../batchFlow'
@@ -47,7 +47,7 @@ export default function RallyQueue({
   const copy = useCopy()
   const { state, dispatch } = useAppState()
   const { videos, rallies, selectedRallyId } = state
-  const segments = getSortedRallies(rallies, videos)
+  const segments = useMemo(() => getSortedRallies(rallies, videos), [rallies, videos])
   const videosById: Map<string, VideoRecord> = new Map(videos.map((video) => [video.id, video]))
   const summary = getReviewTaskSummary(segments, copy)
   const exporting = exportProgress !== null

@@ -365,6 +365,7 @@ assert.doesNotMatch(matchMapSource, /整场比赛地图|只看建议保留|显�
 
 const rallyQueueSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'RallyQueue.tsx'), 'utf8')
 assert.match(rallyQueueSource, /useCopy/)
+assert.match(rallyQueueSource, /useMemo\(\(\) => getSortedRallies\(rallies, videos\), \[rallies, videos\]\)/)
 assert.match(rallyQueueSource, /videosById: Map<string, VideoRecord>/)
 assert.match(rallyQueueSource, /copy\.rallyQueue\.sourceLabel/)
 assert.match(rallyQueueSource, /dispatch\(\{ type: 'SELECT_RALLY', id: segment\.id \}\)/)
