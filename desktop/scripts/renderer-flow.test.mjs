@@ -408,6 +408,7 @@ const appExecutableSource = appSource.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\
 const pythonBridgeExecutableSource = pythonBridgeSource.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 const ffmpegExecutableSource = ffmpegSource.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 const cancelAnalysisHandlerSource = pythonBridgeExecutableSource.match(/ipcMain\.handle\('cancel-analysis'[\s\S]*?\n\s*\}\)\s*\n\s*ipcMain\.handle\('load-report'/)?.[0] ?? ''
+const analyzeVideoSource = appExecutableSource.match(/const analyzeVideo = useCallback\(async \(video: VideoRecord, runId: number, options\?: \{ reuseReport\?: boolean \}\) => \{([\s\S]*?)\n\s*\}, \[copy\.app\.reportMissing/)?.[1] ?? ''
 const handleVideosSelectedSource = appExecutableSource.match(/const handleVideosSelected = useCallback\([\s\S]*?\n\s*\}, \[dispatch, startBatchAnalysis\]\)/)?.[0] ?? ''
 const handleRetryVideoSource = appExecutableSource.match(/const handleRetryVideo = useCallback\(async \(videoId: string\) => \{([\s\S]*?)\n\s*\}, \[/)?.[1] ?? ''
 assert.match(mainSource, /properties: \['openFile', 'multiSelections'\]/)
@@ -453,10 +454,16 @@ assert.match(appExecutableSource, /batchRunIdRef\.current \+= 1/)
 assert.match(appExecutableSource, /const runId = batchRunIdRef\.current/)
 assert.match(appExecutableSource, /const analyzeVideo = useCallback\(async \(video: VideoRecord, runId: number, options\?: \{ reuseReport\?: boolean \}\) =>/)
 assert.match(appExecutableSource, /const reuseReport = options\?\.reuseReport !== false/)
-assert.match(appExecutableSource, /if \(reuseReport\) \{[\s\S]*const existing = await window\.api\.loadReport\(video\.path\)[\s\S]*hasReusableAnalysisReport\(existing\)[\s\S]*return true[\s\S]*\}/)
+assert.match(appExecutableSource, /if \(reuseReport\) \{[\s\S]*existing = await window\.api\.loadReport\(video\.path\)[\s\S]*hasReusableAnalysisReport\(existing\)[\s\S]*return true[\s\S]*\}/)
+assert.match(analyzeVideoSource, /catch \(error\) \{[\s\S]*dispatch\(\{ type: 'VIDEO_ANALYSIS_ERROR', videoId: video\.id, message: error instanceof Error \? error\.message : copy\.app\.unknownError \}\)[\s\S]*return false[\s\S]*\}/)
+assert.match(analyzeVideoSource, /report = await window\.api\.loadReport\(video\.path\)[\s\S]*catch \(error\) \{[\s\S]*VIDEO_ANALYSIS_ERROR[\s\S]*return false/)
 assert.match(appExecutableSource, /analyzeVideo\(video, runId, options\)/)
 assert.match(appExecutableSource, /batchRunIdRef\.current !== runId/)
 assert.match(handleVideosSelectedSource, /async \(paths: string\[\]\) => \{[\s\S]*await window\.api\.cancelAnalysis\(\)[\s\S]*dispatch\(\{ type: 'CREATE_BATCH', videos \}\)[\s\S]*startBatchAnalysis\(videos\)/)
+assert.ok(handleRetryVideoSource.indexOf('batchRunIdRef.current += 1') >= 0)
+assert.ok(handleRetryVideoSource.indexOf('batchCancelledRef.current = true') >= 0)
+assert.ok(handleRetryVideoSource.indexOf('batchRunIdRef.current += 1') < handleRetryVideoSource.indexOf('await window.api.cancelAnalysis()'))
+assert.ok(handleRetryVideoSource.indexOf('batchCancelledRef.current = true') < handleRetryVideoSource.indexOf('await window.api.cancelAnalysis()'))
 assert.match(handleRetryVideoSource, /await window\.api\.cancelAnalysis\(\)/)
 assert.match(handleRetryVideoSource, /startBatchAnalysis\(\[video\], \{ reuseReport: false \}\)/)
 assert.ok(handleRetryVideoSource.indexOf('await window.api.cancelAnalysis()') < handleRetryVideoSource.indexOf('startBatchAnalysis([video], { reuseReport: false })'))

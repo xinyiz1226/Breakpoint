@@ -57,7 +57,14 @@ function AppInner() {
 
     const reuseReport = options?.reuseReport !== false
     if (reuseReport) {
-      const existing = await window.api.loadReport(video.path)
+      let existing
+      try {
+        existing = await window.api.loadReport(video.path)
+      } catch (error) {
+        if (!isCurrentBatchRun(runId)) return false
+        dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: error instanceof Error ? error.message : copy.app.unknownError })
+        return false
+      }
       if (!isCurrentBatchRun(runId)) return false
       if (hasReusableAnalysisReport(existing)) {
         const rallies = createRalliesForVideo(video, existing)
@@ -106,7 +113,14 @@ function AppInner() {
       return false
     }
 
-    const report = await window.api.loadReport(video.path)
+    let report
+    try {
+      report = await window.api.loadReport(video.path)
+    } catch (error) {
+      if (!isCurrentBatchRun(runId)) return false
+      dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: error instanceof Error ? error.message : copy.app.unknownError })
+      return false
+    }
     if (!isCurrentBatchRun(runId)) return false
     if (!hasReusableAnalysisReport(report)) {
       dispatch({ type: 'VIDEO_ANALYSIS_ERROR', videoId: video.id, message: copy.app.reportMissing })
@@ -149,6 +163,8 @@ function AppInner() {
       setExportResult({ status: 'error', message: `${copy.app.exportFailedPrefix}${copy.app.unknownError}` })
       return
     }
+    batchRunIdRef.current += 1
+    batchCancelledRef.current = true
     await window.api.cancelAnalysis()
     dispatch({ type: 'VIDEO_ANALYSIS_RETRY', videoId })
     startBatchAnalysis([video], { reuseReport: false })
