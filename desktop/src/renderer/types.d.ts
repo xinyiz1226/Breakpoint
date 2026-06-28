@@ -25,7 +25,7 @@ interface Segment {
 declare global {
   interface Window {
     api: {
-      openFileDialog: () => Promise<string | null>
+      openFileDialog: () => Promise<string[] | null>
       getRecentProjects: () => Promise<string[]>
       getAppVersion: () => Promise<string>
       checkResources: () => Promise<{ ok: boolean; missing: string[] }>
@@ -34,7 +34,7 @@ declare global {
       cancelAnalysis: () => Promise<void>
       cancelExport: () => Promise<void>
       loadReport: (videoPath: string) => Promise<Segment[] | null>
-      exportHighlights: (videoPath: string, segments: { start: number; end: number }[]) =>
+      exportHighlights: (clips: { videoPath: string; start: number; end: number }[]) =>
         Promise<{ error?: string; cancelled?: boolean; outputPath?: string }>
       onAnalysisProgress: (callback: (event: ProgressEvent) => void) => () => void
       onExportProgress: (callback: (event: { time: number }) => void) => () => void

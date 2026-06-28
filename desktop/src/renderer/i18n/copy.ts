@@ -49,6 +49,16 @@ export interface Copy {
     shortcutImport: string
     shortcutQuit: string
   }
+  batch: {
+    title: string
+    videoProgress: (current: number, total: number) => string
+    pending: string
+    running: string
+    done: string
+    failed: string
+    retryVideo: string
+    successfulVideos: (done: number, total: number) => string
+  }
   app: {
     resourceErrorTitle: string
     missingResources: string
@@ -109,6 +119,7 @@ export interface Copy {
     start: string
     end: string
     trimHelp: (start: string, end: string) => string
+    sourceLabel: (source: string) => string
     reset: string
   }
   flow: {
@@ -145,12 +156,22 @@ export const COPY: Record<Language, Copy> = {
       eyebrow: 'AI-powered tennis highlight editor',
       description: 'Your best rallies, automatically surfaced. Breakpoint turns broadcast-view tennis matches and practice footage into a clean highlight reel. AI audio and vision analysis detects each rally, ranks the intensity, removes 70%-80% of dead time, and keeps the moments worth replaying.',
       startLabel: 'Start',
-      importTitle: 'Import new video',
-      importDetail: 'Choose a match or practice video. Analysis starts automatically after import.',
-      dropHint: 'Or drop a video file here',
+      importTitle: 'Import videos',
+      importDetail: 'Choose one or more match or practice videos. Breakpoint analyzes them as a batch.',
+      dropHint: 'Or drop video files here',
       recentTitle: 'Open recent videos',
       shortcutImport: 'Import video',
       shortcutQuit: 'Quit',
+    },
+    batch: {
+      title: 'Batch videos',
+      videoProgress: (current: number, total: number) => `Video ${current} / ${total}`,
+      pending: 'Pending',
+      running: 'Analyzing',
+      done: 'Ready',
+      failed: 'Failed',
+      retryVideo: 'Retry',
+      successfulVideos: (done: number, total: number) => `${done} / ${total} videos ready`,
     },
     app: {
       resourceErrorTitle: 'Resource Error',
@@ -217,6 +238,7 @@ export const COPY: Record<Language, Copy> = {
       start: 'Start',
       end: 'End',
       trimHelp: (start: string, end: string) => `Fine-tune start on the left and end on the right. Original: ${start} – ${end}`,
+      sourceLabel: (source: string) => `Source: ${source}`,
       reset: 'Reset',
     },
     flow: {
@@ -264,12 +286,22 @@ export const COPY: Record<Language, Copy> = {
       eyebrow: 'AI驱动的网球精彩集锦编辑器',
       description: '你的精彩回合，自动呈现。Breakpoint 将广播视角的网球比赛或训练录像一键转化为精彩集锦。AI 音频与视觉分析自动识别每一个回合，按激烈程度排序，剔除 70%–80% 的垃圾时间，只留下值得回看的高光时刻。',
       startLabel: '开始',
-      importTitle: '导入新视频',
-      importDetail: '选择比赛或练习视频，导入后自动开始处理',
-      dropHint: '或把视频文件拖到这里',
+      importTitle: '导入多个视频',
+      importDetail: '选择一个或多个比赛/训练视频，Breakpoint 会按批次逐个分析。',
+      dropHint: '或把多个视频文件拖到这里',
       recentTitle: '打开之前的视频',
       shortcutImport: '导入视频',
       shortcutQuit: '退出',
+    },
+    batch: {
+      title: '批次视频',
+      videoProgress: (current: number, total: number) => `第 ${current} / ${total} 个视频`,
+      pending: '等待中',
+      running: '分析中',
+      done: '已完成',
+      failed: '失败',
+      retryVideo: '重试',
+      successfulVideos: (done: number, total: number) => `${done} / ${total} 个视频已就绪`,
     },
     app: {
       resourceErrorTitle: '资源错误',
@@ -336,6 +368,7 @@ export const COPY: Record<Language, Copy> = {
       start: '开始',
       end: '结束',
       trimHelp: (start: string, end: string) => `左侧微调开始，右侧微调结束。原始：${start} – ${end}`,
+      sourceLabel: (source: string) => `来源：${source}`,
       reset: '重置',
     },
     flow: {

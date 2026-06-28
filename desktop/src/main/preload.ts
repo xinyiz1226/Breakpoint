@@ -15,7 +15,7 @@ export interface ProgressEvent {
 }
 
 contextBridge.exposeInMainWorld('api', {
-  openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
+  openFileDialog: () => ipcRenderer.invoke('open-file-dialog') as Promise<string[] | null>,
   getRecentProjects: () => ipcRenderer.invoke('get-recent-projects'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version') as Promise<string>,
   checkResources: () => ipcRenderer.invoke('check-resources') as Promise<{ ok: boolean; missing: string[] }>,
@@ -24,8 +24,8 @@ contextBridge.exposeInMainWorld('api', {
   cancelAnalysis: () => ipcRenderer.invoke('cancel-analysis'),
   cancelExport: () => ipcRenderer.invoke('cancel-export'),
   loadReport: (videoPath: string) => ipcRenderer.invoke('load-report', videoPath),
-  exportHighlights: (videoPath: string, segments: { start: number; end: number }[]) =>
-    ipcRenderer.invoke('export-highlights', videoPath, segments),
+  exportHighlights: (clips: { videoPath: string; start: number; end: number }[]) =>
+    ipcRenderer.invoke('export-highlights', clips),
   onAnalysisProgress: (callback: (event: ProgressEvent) => void) => {
     const handler = (_: unknown, data: ProgressEvent) => callback(data)
     ipcRenderer.on('analysis-progress', handler)

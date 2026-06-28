@@ -10,10 +10,11 @@ interface Props {
   onCancel: () => void
   onReturnWelcome: () => void
   onRetry: () => void
+  batchLabel?: string
   languageSwitch: ReactNode
 }
 
-export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnWelcome, onRetry, languageSwitch }: Props) {
+export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnWelcome, onRetry, batchLabel, languageSwitch }: Props) {
   const copy = useCopy()
 
   return (
@@ -60,6 +61,7 @@ export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnW
             onCancel={onCancel}
             onReturnWelcome={onReturnWelcome}
             onRetry={onRetry}
+            batchLabel={batchLabel}
           />
         </div>
       </div>

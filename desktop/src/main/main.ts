@@ -55,19 +55,22 @@ function createWindow() {
 ipcMain.handle('open-file-dialog', async (event) => {
   const parentWin = BrowserWindow.fromWebContents(event.sender)
   const result = await dialog.showOpenDialog(parentWin!, {
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'Video', extensions: ['mp4', 'mkv', 'avi', 'mov'] },
     ],
   })
   if (result.canceled || result.filePaths.length === 0) return null
-  const filePath = result.filePaths[0]
+  const filePaths = result.filePaths
 
   const recent = store.get('recentProjects')
-  const updated = [filePath, ...recent.filter((p) => p !== filePath)].slice(0, 10)
+  const updated = [
+    ...filePaths,
+    ...recent.filter((p) => !filePaths.includes(p)),
+  ].slice(0, 10)
   store.set('recentProjects', updated)
 
-  return filePath
+  return filePaths
 })
 
 ipcMain.handle('get-recent-projects', () => {

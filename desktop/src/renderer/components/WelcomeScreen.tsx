@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { useCopy } from '../i18n'
 
 interface Props {
-  onVideoSelected: (path: string) => void
+  onVideosSelected: (paths: string[]) => void
   languageSwitch: ReactNode
 }
 
@@ -27,7 +27,7 @@ const actionPanel: CSSProperties = {
   WebkitAppRegion: 'drag',
 } as CSSProperties
 
-export default function WelcomeScreen({ onVideoSelected, languageSwitch }: Props) {
+export default function WelcomeScreen({ onVideosSelected, languageSwitch }: Props) {
   const copy = useCopy()
   const [recent, setRecent] = useState<string[]>([])
   const [appVersion, setAppVersion] = useState('')
@@ -39,15 +39,17 @@ export default function WelcomeScreen({ onVideoSelected, languageSwitch }: Props
   }, [])
 
   const handleOpen = async () => {
-    const path = await window.api.openFileDialog()
-    if (path) onVideoSelected(path)
+    const paths = await window.api.openFileDialog()
+    if (paths && paths.length > 0) onVideosSelected(paths)
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) onVideoSelected((file as any).path)
+    const paths = Array.from(e.dataTransfer.files)
+      .map((file) => (file as File & { path?: string }).path)
+      .filter((path): path is string => Boolean(path))
+    if (paths.length > 0) onVideosSelected(paths)
   }
 
   return (
@@ -175,7 +177,7 @@ export default function WelcomeScreen({ onVideoSelected, languageSwitch }: Props
                 {recent.slice(0, 5).map((p) => (
                   <button
                     key={p}
-                    onClick={() => onVideoSelected(p)}
+                    onClick={() => onVideosSelected([p])}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10,
                       padding: '8px 10px', borderRadius: 'var(--radius-sm)',

@@ -8,9 +8,10 @@ interface Props {
   onCancel: () => void
   onReturnWelcome: () => void
   onRetry: () => void
+  batchLabel?: string
 }
 
-export default function AnalysisProgressPanel({ step, errorMessage, onCancel, onReturnWelcome, onRetry }: Props) {
+export default function AnalysisProgressPanel({ step, errorMessage, onCancel, onReturnWelcome, onRetry, batchLabel }: Props) {
   const copy = useCopy()
   const view = getAnalysisStageView(step, copy)
   const activeStage = getAnalysisStageNumber(step)
@@ -46,6 +47,7 @@ export default function AnalysisProgressPanel({ step, errorMessage, onCancel, on
       </h1>
       <p style={{ color: 'var(--color-text-secondary)', lineHeight: 1.7, margin: '0 0 26px', maxWidth: 560, fontSize: 'clamp(12px, 1.05vw, 14px)' }}>{copy.analysisPanel.intro}</p>
       <div style={{ border: '1px solid var(--color-border)', borderRadius: 12, padding: 22, background: 'rgba(250,247,242,0.72)' }}>
+        {batchLabel && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>{batchLabel}</div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 12, marginBottom: 12, color: 'var(--color-text-secondary)' }}>
           <span>{view.stageLabel}{view.subProgress ? ` · ${view.subProgress.label}` : ''}</span>
           <strong style={{ color: 'var(--color-text)' }}>{Math.round(view.progress * 100)}%</strong>

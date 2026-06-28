@@ -4,6 +4,14 @@ import path from 'node:path'
 import fs from 'node:fs'
 
 let analysisProcess: ChildProcess | null = null
+let analysisCancellationPromise: Promise<void> | null = null
+
+function clearAnalysisProcess(child: ChildProcess) {
+  if (analysisProcess === child) {
+    analysisProcess = null
+    analysisCancellationPromise = null
+  }
+}
 
 function getEngineCommand(): { cmd: string; args: string[] } {
   if (app.isPackaged) {
@@ -37,77 +45,107 @@ export function setupPythonBridge() {
     }
 
     return new Promise<{ error?: string }>((resolve) => {
-      analysisProcess = spawn(cmd, fullArgs, {
+      let settled = false
+      const settle = (result: { error?: string }) => {
+        if (settled) return
+        settled = true
+        resolve(result)
+      }
+
+      const child = spawn(cmd, fullArgs, {
         cwd,
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
+      analysisProcess = child
 
       const win = BrowserWindow.fromWebContents(event.sender)
       let stdoutBuf = ''
       let stderrBuf = ''
+      let completed = false
+      let completionError: string | null = null
 
-      analysisProcess.stdout?.on('data', (data: Buffer) => {
+      const handleStdoutLine = (line: string) => {
+        const trimmed = line.trim()
+        if (!trimmed) return
+        try {
+          const msg = JSON.parse(trimmed)
+          win?.webContents.send('analysis-progress', msg)
+          if (msg.type === 'complete') {
+            completed = true
+          }
+          if (msg.type === 'error') {
+            completionError = msg.message ?? 'Analysis failed'
+          }
+        } catch {
+          // non-JSON output, ignore
+        }
+      }
+
+      child.stdout?.on('data', (data: Buffer) => {
         stdoutBuf += data.toString()
         const parts = stdoutBuf.split('\n')
         stdoutBuf = parts.pop()!
         for (const line of parts) {
-          const trimmed = line.trim()
-          if (!trimmed) continue
-          try {
-            const msg = JSON.parse(trimmed)
-            win?.webContents.send('analysis-progress', msg)
-            if (msg.type === 'complete') {
-              resolve({})
-            }
-            if (msg.type === 'error') {
-              resolve({ error: msg.message })
-            }
-          } catch {
-            // non-JSON output, ignore
-          }
+          handleStdoutLine(line)
         }
       })
 
-      analysisProcess.stderr?.on('data', (data: Buffer) => {
+      child.stderr?.on('data', (data: Buffer) => {
         const text = data.toString()
         stderrBuf += text
         console.error('[python]', text)
         win?.webContents.send('analysis-progress', { type: 'stderr', message: text })
       })
 
-      analysisProcess.on('close', (code) => {
-        // Process remaining buffered output
+      child.on('close', (code) => {
         if (stdoutBuf.trim()) {
-          try {
-            const msg = JSON.parse(stdoutBuf.trim())
-            win?.webContents.send('analysis-progress', msg)
-            if (msg.type === 'complete') {
-              analysisProcess = null
-              resolve({})
-              return
-            }
-          } catch { /* ignore */ }
+          handleStdoutLine(stdoutBuf)
         }
-        analysisProcess = null
-        if (code !== 0) {
+        clearAnalysisProcess(child)
+        if (completionError) {
+          settle({ error: completionError })
+        } else if (code !== 0) {
           const detail = stderrBuf.trim().split('\n').pop() || ''
-          resolve({ error: detail || `Process exited with code ${code}` })
+          settle({ error: detail || `Process exited with code ${code}` })
+        } else if (completed) {
+          settle({})
+        } else {
+          settle({ error: 'Analysis process ended before completion' })
         }
       })
 
-      analysisProcess.on('error', (err) => {
-        analysisProcess = null
-        resolve({ error: err.message })
+      child.on('error', (err) => {
+        clearAnalysisProcess(child)
+        settle({ error: err.message })
       })
     })
   })
 
-  ipcMain.handle('cancel-analysis', () => {
-    if (analysisProcess) {
-      analysisProcess.kill()
-      analysisProcess = null
+  ipcMain.handle('cancel-analysis', async () => {
+    const processToCancel = analysisProcess
+    if (!processToCancel) {
+      return
     }
+
+    if (!analysisCancellationPromise) {
+      analysisCancellationPromise = new Promise<void>((resolve) => {
+        let settled = false
+        const settle = () => {
+          if (settled) return
+          settled = true
+          processToCancel.off('close', settle)
+          processToCancel.off('error', settle)
+          resolve()
+        }
+
+        processToCancel.once('close', settle)
+        processToCancel.once('error', settle)
+      })
+      processToCancel.kill()
+    }
+
+    return analysisCancellationPromise
   })
 
   ipcMain.handle('load-report', async (_event, reportOrVideoPath: string) => {
