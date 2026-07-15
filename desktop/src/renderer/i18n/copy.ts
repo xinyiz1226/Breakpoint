@@ -116,6 +116,10 @@ export interface Copy {
     toneDiscarded: string
     hits: (count: number | string) => string
     intensity: (score: string) => string
+    players: (player1Side: string, player2Side: string) => string
+    nearSide: string
+    farSide: string
+    playerNotDetected: string
     start: string
     end: string
     trimHelp: (start: string, end: string) => string
@@ -235,6 +239,10 @@ export const COPY: Record<Language, Copy> = {
       toneDiscarded: 'Discarded',
       hits: (count: number | string) => `${count} hits`,
       intensity: (score: string) => `Intensity ${score}`,
+      players: (player1Side: string, player2Side: string) => `P1 ${player1Side} · P2 ${player2Side}`,
+      nearSide: 'near side',
+      farSide: 'far side',
+      playerNotDetected: 'not detected',
       start: 'Start',
       end: 'End',
       trimHelp: (start: string, end: string) => `Fine-tune start on the left and end on the right. Original: ${start} – ${end}`,
@@ -365,6 +373,10 @@ export const COPY: Record<Language, Copy> = {
       toneDiscarded: '已剔除',
       hits: (count: number | string) => `${count} 次击球`,
       intensity: (score: string) => `强度 ${score}`,
+      players: (player1Side: string, player2Side: string) => `球员 1 ${player1Side} · 球员 2 ${player2Side}`,
+      nearSide: '近场',
+      farSide: '远场',
+      playerNotDetected: '未检测到',
       start: '开始',
       end: '结束',
       trimHelp: (start: string, end: string) => `左侧微调开始，右侧微调结束。原始：${start} – ${end}`,

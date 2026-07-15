@@ -34,6 +34,17 @@ def test_vision_progress_starts_before_first_segment(tmp_path, monkeypatch, caps
 
     monkeypatch.setattr(player_motion, "analyze_motion", fake_analyze_motion)
 
+    from engine.vision import player_identity
+
+    monkeypatch.setattr(
+        player_identity,
+        "analyze_player_identities",
+        lambda _video_path, segments, _rois: [
+            {"players": {"player_1": {"detected": False}, "player_2": {"detected": False}}}
+            for _ in segments
+        ],
+    )
+
     pipeline.run_analysis(str(video_path), output_dir=str(tmp_path / "out"), json_progress=True)
 
     messages = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
@@ -41,3 +52,32 @@ def test_vision_progress_starts_before_first_segment(tmp_path, monkeypatch, caps
 
     assert progress_messages[0] == {"type": "progress", "step": 3.5, "current": 0, "sub_total": 2}
     assert [message["current"] for message in progress_messages] == [0, 1, 2]
+
+    report = json.loads((tmp_path / "out" / "full_report.json").read_text())
+    assert report[0]["analysis_version"] == 2
+    assert report[0]["player_identity_status"] == "complete"
+
+
+def test_court_detection_fallback_report_is_versioned(tmp_path, monkeypatch):
+    video_path = tmp_path / "sample.mp4"
+    video_path.write_bytes(b"fake")
+    points = [{
+        "start": 1.0,
+        "end": 5.0,
+        "hit_times": [1.2, 2.0, 3.1, 4.2],
+        "hit_energies": [1, 2, 3, 4],
+    }]
+
+    monkeypatch.setattr(pipeline, "extract_audio", lambda *_args, **_kwargs: str(tmp_path / "audio.wav"))
+    monkeypatch.setattr(pipeline, "detect_hits", lambda *_args, **_kwargs: (np.array([1]), np.array([1]), 22050))
+    monkeypatch.setattr(pipeline, "segment_points", lambda *_args, **_kwargs: points)
+
+    from engine.vision import player_motion
+
+    monkeypatch.setattr(player_motion, "select_rois", lambda *_args, **_kwargs: None)
+    pipeline.run_analysis(str(video_path), output_dir=str(tmp_path / "out"))
+
+    report = json.loads((tmp_path / "out" / "full_report.json").read_text())
+    assert report[0]["analysis_version"] == 2
+    assert report[0]["player_identity_status"] == "skipped_court_detection"
+    assert "players" not in report[0]

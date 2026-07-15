@@ -5,12 +5,28 @@ const MIN_SEGMENT_DURATION = 0.5
 
 type VideoAnalysisStatus = 'pending' | 'running' | 'done' | 'error'
 
+interface PlayerIdentity {
+  detected: boolean
+  side?: 'near' | 'far'
+  detection_confidence?: number
+  identity_confidence?: number
+  movement_distance?: number
+  sample_count?: number
+  mean_position?: [number, number]
+}
+
+interface RallyPlayers {
+  player_1: PlayerIdentity
+  player_2: PlayerIdentity
+}
+
 interface Segment {
   index: number
   start: number
   end: number
   score: number
   features: Record<string, number>
+  players?: RallyPlayers
   included: boolean
   startAdjusted?: number
   endAdjusted?: number
@@ -46,6 +62,7 @@ interface RallySegment {
   end: number
   score: number
   features: Record<string, number>
+  players?: RallyPlayers
   included: boolean
   startAdjusted?: number
   endAdjusted?: number
@@ -326,4 +343,4 @@ export function useAppState() {
 }
 
 export { INCLUDE_THRESHOLD, MIN_SEGMENT_DURATION, applyAutoInclude, reducer }
-export type { Action, AppState, ProgressStep, RallySegment, Segment, VideoAnalysisStatus, VideoRecord }
+export type { Action, AppState, PlayerIdentity, ProgressStep, RallyPlayers, RallySegment, Segment, VideoAnalysisStatus, VideoRecord }

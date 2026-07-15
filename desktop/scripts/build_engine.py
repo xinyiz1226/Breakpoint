@@ -43,6 +43,8 @@ def main():
         "--hidden-import", "engine.export.compile",
         "--hidden-import", "engine.vision",
         "--hidden-import", "engine.vision.player_motion",
+        "--hidden-import", "engine.vision.player_identity",
+        "--add-data", str(PROJECT_ROOT / "engine" / "vision" / "models" / "yolox_nano.onnx") + ";engine/vision/models",
         "--collect-all", "librosa",
         "--collect-all", "soundfile",
         str(ENTRY),

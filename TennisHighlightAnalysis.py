@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--silence-gap", type=float, default=6.0, help="Silence gap threshold (seconds)")
     parser.add_argument("--buffer", type=float, default=1.5, help="Buffer before/after each point (seconds)")
     parser.add_argument("--no-vision", action="store_true", help="Disable vision-based analysis")
+    parser.add_argument("--no-player-identity", action="store_true", help="Disable YOLO player identification")
     parser.add_argument("--vision-keep", type=float, default=0.7, help="Fraction of segments to keep after vision ranking (0-1, default 0.7)")
     parser.add_argument("--json-progress", action="store_true", help="Output JSON-line progress messages to stdout")
     parser.add_argument("--no-compile", action="store_true", help="Only analyze, skip highlight compilation")
@@ -36,6 +37,7 @@ def main():
             silence_gap=args.silence_gap,
             buffer=args.buffer,
             vision=not args.no_vision,
+            player_identity=not args.no_player_identity,
             vision_keep=args.vision_keep,
             json_progress=args.json_progress,
         )

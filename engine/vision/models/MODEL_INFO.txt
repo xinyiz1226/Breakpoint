@@ -1,0 +1,7 @@
+Model: YOLOX-Nano
+File: yolox_nano.onnx
+Source: https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx
+License: Apache License 2.0
+SHA-256: c789161ed43c8269fcd4e67c67eeb4e80c622da2eb296a20bc6007bd18a0b7d
+
+The model is trained on COCO. Breakpoint uses only class 0 (person).

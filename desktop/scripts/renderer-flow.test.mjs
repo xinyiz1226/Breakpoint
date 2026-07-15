@@ -96,7 +96,17 @@ assert.equal(batchVideos[1].displayName, 'second.mov')
 assert.equal(getVideoDisplayName('C:\\clips\\demo.avi'), 'demo.avi')
 
 const firstVideoRallies = createRalliesForVideo(batchVideos[0], [
-  { index: 2, start: 30, end: 38, score: 1.8, features: { hit_count: 7 } },
+  {
+    index: 2,
+    start: 30,
+    end: 38,
+    score: 1.8,
+    features: { hit_count: 7 },
+    players: {
+      player_1: { detected: true, side: 'far' },
+      player_2: { detected: true, side: 'near' },
+    },
+  },
   { index: 1, start: 10, end: 22, score: 2.5, features: { hit_count: 16 } },
 ])
 const secondVideoRallies = createRalliesForVideo(batchVideos[1], [
@@ -107,6 +117,7 @@ assert.deepEqual(firstVideoRallies.map((r) => r.id), ['video-1-rally-2', 'video-
 assert.equal(firstVideoRallies[0].videoId, 'video-1')
 assert.equal(firstVideoRallies[0].sourceIndex, 2)
 assert.equal(firstVideoRallies[0].included, true)
+assert.equal(firstVideoRallies[0].players.player_1.side, 'far')
 assert.equal(firstVideoRallies[1].included, true)
 
 const sortedRallies = getSortedRallies([
@@ -291,7 +302,38 @@ assert.equal(getSegmentTone({
 }), 'discarded')
 assert.equal(hasReusableAnalysisReport(null), false)
 assert.equal(hasReusableAnalysisReport([]), false)
-assert.equal(hasReusableAnalysisReport([{ index: 1, start: 10, end: 20, score: 2, features: {} }]), true)
+assert.equal(hasReusableAnalysisReport([{ index: 1, start: 10, end: 20, score: 2, features: {} }]), false)
+assert.equal(hasReusableAnalysisReport([{
+  analysis_version: 2,
+  player_identity_status: 'complete',
+  index: 1,
+  start: 10,
+  end: 20,
+  score: 2,
+  features: {},
+  players: {
+    player_1: { detected: true },
+    player_2: { detected: false },
+  },
+}]), true)
+assert.equal(hasReusableAnalysisReport([{
+  analysis_version: 2,
+  player_identity_status: 'disabled',
+  index: 1,
+  start: 10,
+  end: 20,
+  score: 2,
+  features: {},
+}]), false)
+assert.equal(hasReusableAnalysisReport([{
+  analysis_version: 2,
+  player_identity_status: 'skipped_court_detection',
+  index: 1,
+  start: 10,
+  end: 20,
+  score: 2,
+  features: {},
+}]), true)
 
 const analysisCourtSource = fs.readFileSync(path.join(root, 'src', 'renderer', 'components', 'AnalysisCourtVisual.tsx'), 'utf8')
 assert.match(analysisCourtSource, /export default function AnalysisCourtVisual/)

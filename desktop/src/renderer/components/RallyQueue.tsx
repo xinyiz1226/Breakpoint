@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useAppState, type RallySegment, type VideoRecord } from '../state/AppState'
+import { useAppState, type PlayerIdentity, type RallySegment, type VideoRecord } from '../state/AppState'
 import { useCopy, type Copy } from '../i18n'
 import { getSortedRallies } from '../batchFlow'
 import { getAdjustedTimeRange, getExportActionCopy, getRallyTitle, getReviewTaskSummary, getSegmentTone } from '../viewModels/flowCopy'
@@ -172,6 +172,13 @@ function RallyCard({
   const range = getAdjustedTimeRange(segment)
   const isEdited = segment.startAdjusted != null || segment.endAdjusted != null
   const borderColor = isSelected ? 'var(--color-accent)' : '#e5d2bd'
+  const playerSide = (player: PlayerIdentity | undefined) => {
+    if (!player?.detected || !player.side) return copy.rallyQueue.playerNotDetected
+    return player.side === 'near' ? copy.rallyQueue.nearSide : copy.rallyQueue.farSide
+  }
+  const hasPlayerIdentity = Boolean(
+    segment.players?.player_1.detected || segment.players?.player_2.detected,
+  )
 
   return (
     <div
@@ -207,6 +214,14 @@ function RallyCard({
         <div style={{ ...badgeStyle, color: scoreColor(segment.score) }}>
           {toneLabel(segment, copy)} · {copy.rallyQueue.hits(segment.features.hit_count ?? copy.common.hitCountUnknown)} · {copy.rallyQueue.intensity(segment.score.toFixed(2))}
         </div>
+        {hasPlayerIdentity && segment.players && (
+          <div style={cardMetaStyle}>
+            {copy.rallyQueue.players(
+              playerSide(segment.players.player_1),
+              playerSide(segment.players.player_2),
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -13,6 +13,7 @@ Breakpoint analyzes full-length tennis videos using audio-based hit detection an
 - **Hit Detection** — Detects ball strikes via audio onset analysis with adaptive thresholds
 - **Smart Segmentation** — Splits the match into individual rallies using silence gaps, with density trimming and duration filtering
 - **Vision Ranking** — Scores each rally by player motion intensity (large court coverage, diving saves, etc.)
+- **Player Identity** — Uses the free Apache-2.0 YOLOX-Nano model and appearance matching to keep stable anonymous player IDs across court-side changes
 - **Rally Queue & Match Map** — Browse rallies ranked by intensity in a queue view; visualize rally distribution across the full match in a match map
 - **One-Click Export** — Export selected highlights as a single compiled video via ffmpeg
 
@@ -40,7 +41,7 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 
 | Layer | Technology |
 |-------|-----------|
-| Analysis engine | Python 3.14, librosa, OpenCV, NumPy, SciPy |
+| Analysis engine | Python 3.14, librosa, OpenCV, YOLOX-Nano, NumPy, SciPy |
 | Desktop app | Electron, React, TypeScript, Vite |
 | Video processing | ffmpeg |
 | Packaging | PyInstaller (engine), electron-builder (installer) |
@@ -65,6 +66,15 @@ desktop/         Electron + React desktop application
 tools/           Development utilities (comparison, parameter sweep, tests)
 web/             Legacy Flask web UI
 ```
+
+Vision-enabled reports include a `players` object for each rally. `player_1` and
+`player_2` are anonymous appearance-based identities; each records the player's
+current court side, detection/identity confidence, normalized movement distance,
+sample count, and mean frame position. Actual player names are not inferred.
+
+The bundled `engine/vision/models/yolox_nano.onnx` model is distributed under
+Apache License 2.0. Its source and checksum are documented in
+`engine/vision/models/MODEL_INFO.txt`.
 
 ## Open Source License and Commercial Licensing (License)
 
