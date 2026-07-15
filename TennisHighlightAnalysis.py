@@ -1,10 +1,9 @@
 import argparse
+import json
 import multiprocessing
 import sys
+import traceback
 from pathlib import Path
-
-from engine.pipeline import run_analysis
-from engine.export.compile import compile_highlights
 
 
 def main():
@@ -28,26 +27,38 @@ def main():
 
     output_dir = args.output if args.output else str(video.parent / f"output_{video.stem}")
 
-    ranked = run_analysis(
-        args.video,
-        output_dir=output_dir,
-        silence_gap=args.silence_gap,
-        buffer=args.buffer,
-        vision=not args.no_vision,
-        vision_keep=args.vision_keep,
-        json_progress=args.json_progress,
-    )
+    try:
+        from engine.pipeline import run_analysis
 
-    if not args.no_compile and ranked:
-        timeline_path = str(Path(output_dir) / "full_report.json")
-        compile_highlights(args.video, timeline_path)
+        ranked = run_analysis(
+            args.video,
+            output_dir=output_dir,
+            silence_gap=args.silence_gap,
+            buffer=args.buffer,
+            vision=not args.no_vision,
+            vision_keep=args.vision_keep,
+            json_progress=args.json_progress,
+        )
 
-    if args.reference:
-        from tools.compare import compare_with_reference, print_report
-        print("\n[Compare] Comparing with reference video...")
-        result = compare_with_reference(args.video, args.reference, pipeline_segments=ranked)
-        print_report(result)
+        if not args.no_compile and ranked:
+            from engine.export.compile import compile_highlights
+            timeline_path = str(Path(output_dir) / "full_report.json")
+            compile_highlights(args.video, timeline_path)
+
+        if args.reference:
+            from tools.compare import compare_with_reference, print_report
+            print("\n[Compare] Comparing with reference video...")
+            result = compare_with_reference(args.video, args.reference, pipeline_segments=ranked)
+            print_report(result)
+    except Exception as error:
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr, flush=True)
+        if args.json_progress:
+            print(json.dumps({"type": "error", "message": str(error), "traceback": tb}), flush=True)
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

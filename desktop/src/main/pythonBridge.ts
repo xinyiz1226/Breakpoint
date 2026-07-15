@@ -75,7 +75,7 @@ export function setupPythonBridge() {
             completed = true
           }
           if (msg.type === 'error') {
-            completionError = msg.message ?? 'Analysis failed'
+            completionError = msg.traceback ?? msg.message ?? 'Analysis failed'
           }
         } catch {
           // non-JSON output, ignore
@@ -106,7 +106,7 @@ export function setupPythonBridge() {
         if (completionError) {
           settle({ error: completionError })
         } else if (code !== 0) {
-          const detail = stderrBuf.trim().split('\n').pop() || ''
+          const detail = stderrBuf.trim()
           settle({ error: detail || `Process exited with code ${code}` })
         } else if (completed) {
           settle({})
