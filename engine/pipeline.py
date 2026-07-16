@@ -44,6 +44,7 @@ def run_analysis(
     silence_gap: float = 6.0,
     buffer: float = 1.5,
     vision: bool = True,
+    player_identity: bool = True,
     vision_keep: float = 0.7,
     json_progress: bool = False,
 ) -> list[dict]:
@@ -78,6 +79,7 @@ def run_analysis(
     _log(f"  Found {len(points)} points/rallies", json_progress)
 
     vision_data = None
+    player_identity_status = "disabled"
     if vision:
         from engine.vision.player_motion import select_rois, analyze_motion
         _emit({"type": "step", "step": 3.5, "total": total_steps, "label": "Analyzing player motion"}, json_progress)
@@ -85,6 +87,7 @@ def run_analysis(
         t0 = time.time()
         rois = select_rois(video_path)
         if rois is None:
+            player_identity_status = "skipped_court_detection"
             _log("  Court detection failed, skipping vision analysis.", json_progress)
             _emit({"type": "step_done", "step": 3.5, "elapsed": 0, "detail": {"skipped": True}}, json_progress)
         else:
@@ -93,6 +96,13 @@ def run_analysis(
             if points:
                 _vision_progress(0, len(points))
             vision_data = analyze_motion(video_path, points, rois, progress_callback=_vision_progress)
+            if player_identity:
+                from engine.vision.player_identity import analyze_player_identities
+                _log("  Identifying players...", json_progress)
+                identity_data = analyze_player_identities(video_path, points, rois)
+                for motion, identity in zip(vision_data, identity_data):
+                    motion.update(identity)
+                player_identity_status = "complete"
             elapsed = time.time() - t0
             _emit({"type": "step_done", "step": 3.5, "elapsed": round(elapsed, 1)}, json_progress)
             _log(f"  Done in {elapsed:.1f}s", json_progress)
@@ -112,13 +122,20 @@ def run_analysis(
         _log(f"  #{i+1}: {p['start']:.1f}s-{p['end']:.1f}s ({dur:.1f}s, {hits} hits, score={p['score']:.3f})", json_progress)
 
     report_path = str(out / "full_report.json")
-    report_data = [{
-        "index": i + 1,
-        "start": p["start"],
-        "end": p["end"],
-        "score": p["score"],
-        "features": p["features"],
-    } for i, p in enumerate(ranked)]
+    report_data = []
+    for i, point in enumerate(ranked):
+        report_point = {
+            "analysis_version": 2,
+            "player_identity_status": player_identity_status,
+            "index": i + 1,
+            "start": point["start"],
+            "end": point["end"],
+            "score": point["score"],
+            "features": point["features"],
+        }
+        if "players" in point:
+            report_point["players"] = point["players"]
+        report_data.append(report_point)
     Path(report_path).write_text(json.dumps(report_data, indent=2, ensure_ascii=False))
     _log(f"\nTimeline saved to {report_path}", json_progress)
     _log(f"Total points: {len(ranked)}", json_progress)
@@ -135,6 +152,7 @@ if __name__ == "__main__":
     parser.add_argument("--silence-gap", type=float, default=6.0, help="Silence gap threshold (seconds)")
     parser.add_argument("--buffer", type=float, default=1.5, help="Buffer before/after each point (seconds)")
     parser.add_argument("--no-vision", action="store_true", help="Disable vision-based player motion analysis")
+    parser.add_argument("--no-player-identity", action="store_true", help="Disable YOLO player identification")
     parser.add_argument("--vision-keep", type=float, default=0.7, help="Fraction of segments to keep after vision ranking (0-1, default 0.7)")
     parser.add_argument("--json-progress", action="store_true", help="Output JSON-line progress messages to stdout")
     parser.add_argument("--reference", help="Hand-edited reference video for comparison")
@@ -146,6 +164,7 @@ if __name__ == "__main__":
         silence_gap=args.silence_gap,
         buffer=args.buffer,
         vision=not args.no_vision,
+        player_identity=not args.no_player_identity,
         vision_keep=args.vision_keep,
         json_progress=args.json_progress,
     )

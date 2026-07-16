@@ -15,11 +15,27 @@ interface ProgressEvent {
 }
 
 interface Segment {
+  analysis_version?: number
+  player_identity_status?: 'complete' | 'skipped_court_detection' | 'disabled'
   index: number
   start: number
   end: number
   score: number
   features: Record<string, number>
+  players?: {
+    player_1: PlayerIdentity
+    player_2: PlayerIdentity
+  }
+}
+
+interface PlayerIdentity {
+  detected: boolean
+  side?: 'near' | 'far'
+  detection_confidence?: number
+  identity_confidence?: number
+  movement_distance?: number
+  sample_count?: number
+  mean_position?: [number, number]
 }
 
 declare global {

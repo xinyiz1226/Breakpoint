@@ -88,11 +88,14 @@ def rank_points(
         if vision_data:
             score += weights.get("player_motion_max", 0) * motion_maxes[i]
             score += weights.get("player_motion_var", 0) * motion_vars[i]
-        ranked.append({
+        ranked_point = {
             **p,
             "features": features[i],
             "score": round(score, 4),
-        })
+        }
+        if vision_data and "players" in vision_data[i]:
+            ranked_point["players"] = vision_data[i]["players"]
+        ranked.append(ranked_point)
 
-    ranked.sort(key=lambda x: x["start"])
+    ranked.sort(key=lambda x: x["score"], reverse=True)
     return ranked

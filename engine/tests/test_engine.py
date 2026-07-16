@@ -85,6 +85,22 @@ class TestRankPoints:
         ranked = rank_points(points, vision_data=vision)
         assert ranked[0]["features"]["player_motion_max"] == 100.0
 
+    def test_preserves_player_identity_data(self):
+        players = {
+            "player_1": {"detected": True, "side": "near"},
+            "player_2": {"detected": True, "side": "far"},
+        }
+        ranked = rank_points(
+            [self._make_point(0, 10)],
+            vision_data=[{
+                "player_motion_max": 1.0,
+                "player_motion_var": 0.1,
+                "players": players,
+            }],
+        )
+
+        assert ranked[0]["players"] == players
+
 
 class TestComputeFeatures:
     def test_single_hit(self):

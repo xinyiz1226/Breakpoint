@@ -1,14 +1,17 @@
-import type { RallySegment, VideoRecord } from './state/AppState'
+import type { RallyPlayers, RallySegment, VideoRecord } from './state/AppState'
 export type { RallySegment, VideoRecord } from './state/AppState'
 
 const AUTO_INCLUDE_THRESHOLD = 1.7
 
 interface AnalysisSegment {
+  analysis_version?: number
+  player_identity_status?: 'complete' | 'skipped_court_detection' | 'disabled'
   index: number
   start: number
   end: number
   score: number
   features: Record<string, number>
+  players?: RallyPlayers
 }
 
 export interface ExportClip {
@@ -45,6 +48,7 @@ export function createRalliesForVideo(video: VideoRecord, segments: AnalysisSegm
     end: segment.end,
     score: segment.score,
     features: segment.features,
+    players: segment.players,
     included: segment.score > AUTO_INCLUDE_THRESHOLD,
   }))
 }
