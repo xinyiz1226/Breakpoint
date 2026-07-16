@@ -23,6 +23,7 @@ def main():
         "--distpath", str(DIST_DIR),
         "--workpath", str(PROJECT_ROOT / "build-engine"),
         "--specpath", str(PROJECT_ROOT / "build-engine"),
+        "--hidden-import", "_socket",
         "--hidden-import", "librosa",
         "--hidden-import", "soundfile",
         "--hidden-import", "sklearn",
