@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ProgressStep } from '../state/AppState'
 import { useCopy } from '../i18n'
 import AnalysisCourtVisual from './AnalysisCourtVisual'
@@ -16,6 +16,11 @@ interface Props {
 
 export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnWelcome, onRetry, batchLabel, languageSwitch }: Props) {
   const copy = useCopy()
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    window.api.getAppVersion().then(setAppVersion)
+  }, [])
 
   return (
     <div style={{
@@ -40,7 +45,7 @@ export default function AnalysisScreen({ step, errorMessage, onCancel, onReturnW
         <div>{copy.common.appName} · {errorMessage ? copy.analysisScreen.problemTitle : copy.analysisScreen.runningTitle}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, WebkitAppRegion: 'no-drag' } as CSSProperties}>
           {languageSwitch}
-          <span>v0.1.6</span>
+          <span>v{appVersion || '0.0.0'}</span>
         </div>
       </div>
       <div style={{
