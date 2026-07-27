@@ -4,6 +4,10 @@ Automatically extract highlight rallies from broadcast-angle tennis match footag
 
 Breakpoint analyzes full-length tennis videos using audio-based hit detection and computer vision to identify, rank, and export the best rallies — no manual scrubbing required.
 
+**Website:** [xinyiz1226.github.io/Breakpoint](https://xinyiz1226.github.io/Breakpoint/)
+
+![Welcome Screen](docs/Images/Welcome_English.jpg)
+
 ## Features
 
 - **Hit Detection** — Detects ball strikes via audio onset analysis with adaptive thresholds
@@ -30,6 +34,8 @@ Grab the latest release from the [Releases](https://github.com/xinyiz1226/Breakp
 3. **Review** — Browse rallies in the Rally Queue (sorted by intensity score) and the Match Map (full-match overview). The system auto-recommends rallies in three tiers: highlight, keep, and cut.
 4. **Edit** — Click any rally to preview; adjust start/end times and toggle inclusion. Confirm your selection before export.
 5. **Export** — Click "Export" to compile the selected rallies into a single highlight `.mp4` video
+
+![Editor](docs/Images/Edit_English.jpg)
 
 ## Tech Stack
 
@@ -59,7 +65,6 @@ desktop/         Electron + React desktop application
 
 tools/           Development utilities (comparison, parameter sweep, tests)
 web/             Legacy Flask web UI
-docs/designs/    SaaS and iOS product design documents
 ```
 
 Vision-enabled reports include a `players` object for each rally. `player_1` and

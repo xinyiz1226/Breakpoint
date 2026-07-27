@@ -1,9 +1,13 @@
-## Design documents
+## Agent skills
 
-### Web SaaS
+### Issue tracker
 
-The web SaaS design lives in `docs/designs/web-saas-design.md`.
+Issues are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
 
-### iOS app
+### Triage labels
 
-The iOS cloud app design lives in `docs/designs/ios-cloud-app-design.md`.
+Triage uses the default five-label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain documentation uses a single-context layout. See `docs/agents/domain.md`.
