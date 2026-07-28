@@ -32,15 +32,24 @@ import json
 import uuid
 from datetime import timedelta
 
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.deps import get_current_user, get_storage
 from app.models.base import utcnow
-from app.models.enums import JobStatus, QuotaLedgerEventType, VideoAssetStatus
+from app.models.cleanup import StorageCleanupTask
+from app.models.enums import (
+    JobStatus,
+    QuotaLedgerEventType,
+    StorageCleanupOperation,
+    StorageCleanupStatus,
+    VideoAssetStatus,
+)
 from app.models.job import AnalysisJob
 from app.models.project import Project
 from app.models.user import User
@@ -57,28 +66,49 @@ from app.schemas.video import (
     VideoAssetRead,
 )
 from app.services import quota as quota_service
-from app.services.storage import ObjectStorage, UploadPart
+from app.services import reservations as reservation_service
+from app.services import storage_cleanup as storage_cleanup_service
+from app.services.storage import MultipartUploadNotFound, ObjectNotFound, ObjectStorage, UploadPart
 
 router = APIRouter(prefix="/api/v1/projects/{project_id}", tags=["uploads"])
 
 
-def _get_owned_project(db: Session, project_id: uuid.UUID, owner_id: uuid.UUID) -> Project:
-    project = db.execute(
-        select(Project).where(Project.id == project_id, Project.owner_id == owner_id)
-    ).scalar_one_or_none()
+def _get_owned_project(
+    db: Session, project_id: uuid.UUID, owner_id: uuid.UUID, *, for_update: bool = False
+) -> Project:
+    stmt = select(Project).where(
+        Project.id == project_id, Project.owner_id == owner_id, Project.deleted_at.is_(None)
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    project = db.execute(stmt).scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return project
 
 
 def _get_owned_video_asset(
-    db: Session, project: Project, video_asset_id: uuid.UUID, *, for_update: bool = False
+    db: Session,
+    project: Project,
+    video_asset_id: uuid.UUID,
+    *,
+    for_update: bool = False,
+    populate_existing: bool = False,
 ) -> VideoAsset:
     stmt = select(VideoAsset).where(
         VideoAsset.id == video_asset_id, VideoAsset.project_id == project.id
     )
     if for_update:
         stmt = stmt.with_for_update()
+    if populate_existing:
+        # This row may already be present in this session's identity map
+        # (e.g. from the lock taken at the top of this request), and a
+        # concurrent commit from another session -- releasing this asset's
+        # reservations as part of tombstoning its project -- must be
+        # observed here rather than returning stale in-memory attributes.
+        # Without this, a stale non-zero reservation would look releasable
+        # again even though it was already released, double-releasing it.
+        stmt = stmt.execution_options(populate_existing=True)
     video_asset = db.execute(stmt).scalar_one_or_none()
     if video_asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video asset not found")
@@ -105,25 +135,40 @@ def _fingerprint_parts(parts: list[dict[str, object]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _abort_upload_and_release_reservation(
-    db: Session, video_asset: VideoAsset, owner_id: uuid.UUID
+def _abort_and_queue_object_cleanup(
+    db: Session,
+    video_asset: VideoAsset,
+    project: Project,
+    storage: ObjectStorage,
 ) -> None:
-    """Mark the asset aborted and release its provisional quota reservation.
+    """Handle a finalize integrity failure discovered *after* the object was
+    already completed in storage: release both outstanding reservations,
+    mark the asset ``CLEANUP_PENDING``, and persist+commit a durable
+    ``DELETE_OBJECT`` cleanup task *before* attempting deletion.
 
-    Called when finalize's post-complete integrity checks fail: the asset
-    will never be analyzed, so the ANALYSIS_RESERVED entry made at initiate
-    must be released rather than permanently consuming the user's monthly
-    quota for a video that was never usable.
+    The durable state (reservations released, cleanup task persisted) is
+    committed first so a crash before or during the synchronous delete
+    attempt below never leaves the object untracked -- the task simply
+    stays ``pending``/``failed`` until something claims it again. Whether
+    the synchronous delete below succeeds or not, the caller still returns
+    the original validation error: cleanup success/failure does not change
+    the fact that this upload is invalid.
     """
-    video_asset.status = VideoAssetStatus.UPLOAD_ABORTED
-    quota_service.record_ledger_event(
+    reservation_service.release_analysis_reservation(db, video_asset)
+    reservation_service.release_storage_reservation(db, video_asset)
+    video_asset.status = VideoAssetStatus.CLEANUP_PENDING
+
+    task = storage_cleanup_service.get_or_create_cleanup_task(
         db,
-        user_id=owner_id,
-        event_type=QuotaLedgerEventType.ANALYSIS_RESERVATION_RELEASED,
+        project_id=project.id,
         video_asset_id=video_asset.id,
-        seconds_delta=-video_asset.declared_duration_seconds,
+        object_key=video_asset.object_key,
+        upload_id=None,
+        operation=StorageCleanupOperation.DELETE_OBJECT,
     )
     db.commit()
+
+    storage_cleanup_service.claim_and_process(db, task, storage)
 
 
 @router.post("/uploads", response_model=UploadInitiateResponse, status_code=status.HTTP_201_CREATED)
@@ -135,7 +180,15 @@ def initiate_upload(
     settings: Settings = Depends(get_settings),
     storage: ObjectStorage = Depends(get_storage),
 ) -> UploadInitiateResponse:
-    project = _get_owned_project(db, project_id, current_user.id)
+    # Lock order: User (for quota aggregates), then the active Project row,
+    # held through multipart creation and VideoAsset persistence below. A
+    # second concurrent initiate for the same project blocks on the project
+    # lock until this transaction commits or rolls back, then re-reads
+    # project.video_asset and observes this request's result rather than
+    # racing it. The IntegrityError handling further down is a backstop for
+    # any writer that does not follow this same locking discipline.
+    locked_user = _lock_user_for_update(db, current_user.id)
+    project = _get_owned_project(db, project_id, current_user.id, for_update=True)
 
     if project.video_asset is not None:
         raise HTTPException(
@@ -160,13 +213,6 @@ def initiate_upload(
             ),
         )
 
-    # Lock the user row before any quota aggregate check or write: this is
-    # the serialization point that prevents two concurrent uploads (or an
-    # upload racing a concurrent finalize) from both reading a
-    # not-yet-updated active-job count or reserved-seconds total and both
-    # passing checks that, together, would exceed the limit.
-    locked_user = _lock_user_for_update(db, current_user.id)
-
     active_jobs = quota_service.active_analysis_job_count(db, locked_user.id)
     if active_jobs >= quota_service.max_active_analysis_jobs(locked_user, settings):
         raise HTTPException(
@@ -181,14 +227,16 @@ def initiate_upload(
             detail="Monthly analysis-seconds quota exceeded",
         )
 
+    storage_limit = quota_service.storage_bytes_limit(locked_user, settings)
+    storage_used_or_reserved = quota_service.storage_bytes_used(db, locked_user.id)
+    if storage_used_or_reserved + payload.size_bytes > storage_limit:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Storage-bytes quota exceeded",
+        )
+
     object_key = storage.generate_object_key(project_id=project.id, filename=payload.filename)
     upload_id = storage.create_multipart_upload(object_key=object_key, content_type=payload.content_type)
-    part_urls = storage.generate_presigned_part_urls(
-        object_key=object_key,
-        upload_id=upload_id,
-        part_count=payload.part_count,
-        expires_in_seconds=settings.presigned_url_ttl_seconds,
-    )
 
     video_asset = VideoAsset(
         project_id=project.id,
@@ -203,18 +251,58 @@ def initiate_upload(
         part_count=payload.part_count,
     )
     db.add(video_asset)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # Lost a race against a concurrent initiate for this same project
+        # that did not go through our project lock (e.g. a bug, or a test
+        # simulating one). The external multipart upload we just created is
+        # now orphaned unless we clean it up: best-effort abort it; if that
+        # itself fails, persist a durable ABORT_MULTIPART cleanup task in a
+        # fresh transaction so it is never left untracked.
+        db.rollback()
+        try:
+            storage.abort_multipart_upload(object_key=object_key, upload_id=upload_id)
+        except ClientError:
+            task = StorageCleanupTask(
+                project_id=project.id,
+                object_key=object_key,
+                upload_id=upload_id,
+                operation=StorageCleanupOperation.ABORT_MULTIPART,
+                status=StorageCleanupStatus.PENDING,
+            )
+            db.add(task)
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Project already has a video"
+        ) from None
 
-    # Provisionally reserve monthly analysis-seconds quota against the
-    # client-declared duration. See QuotaLedgerEventType for the full
-    # reservation/release/reconcile contract the finalize path and the
-    # future worker must follow.
+    part_urls = storage.generate_presigned_part_urls(
+        object_key=object_key,
+        upload_id=upload_id,
+        part_count=payload.part_count,
+        expires_in_seconds=settings.presigned_url_ttl_seconds,
+    )
+
+    # Provisionally reserve monthly analysis-seconds and storage-bytes quota
+    # against the client-declared duration/size. See QuotaLedgerEventType
+    # for the full reservation/release/reconcile contract the finalize path
+    # and the future worker must follow.
+    video_asset.analysis_reserved_seconds = payload.duration_seconds
+    video_asset.storage_reserved_bytes = payload.size_bytes
     quota_service.record_ledger_event(
         db,
         user_id=current_user.id,
         event_type=QuotaLedgerEventType.ANALYSIS_RESERVED,
         video_asset_id=video_asset.id,
         seconds_delta=payload.duration_seconds,
+    )
+    quota_service.record_ledger_event(
+        db,
+        user_id=current_user.id,
+        event_type=QuotaLedgerEventType.STORAGE_RESERVED,
+        video_asset_id=video_asset.id,
+        bytes_delta=payload.size_bytes,
     )
     db.commit()
 
@@ -224,6 +312,23 @@ def initiate_upload(
         upload_id=upload_id,
         part_urls=[PartUploadUrl(part_number=n, url=url) for n, url in part_urls],
         expires_in_seconds=settings.presigned_url_ttl_seconds,
+    )
+
+
+def _load_finalize_response(db: Session, video_asset: VideoAsset) -> FinalizeUploadResponse:
+    job = db.execute(
+        select(AnalysisJob)
+        .where(AnalysisJob.video_asset_id == video_asset.id)
+        .order_by(AnalysisJob.created_at.asc())
+    ).scalars().first()
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Finalized video asset is missing its analysis job",
+        )
+    return FinalizeUploadResponse(
+        video_asset=VideoAssetRead.model_validate(video_asset),
+        analysis_job=AnalysisJobRead.model_validate(job),
     )
 
 
@@ -240,12 +345,13 @@ def finalize_upload(
     settings: Settings = Depends(get_settings),
     storage: ObjectStorage = Depends(get_storage),
 ) -> FinalizeUploadResponse:
-    project = _get_owned_project(db, project_id, current_user.id)
-    # Lock the video asset row for the whole finalize transaction: a second
-    # concurrent finalize call for the same asset (same or different
-    # payload) blocks here until this transaction commits, then re-reads
-    # the row and observes the terminal UPLOADED/UPLOAD_ABORTED status
-    # instead of racing this request's storage-completion + DB writes.
+    # Lock order: User, then Project, then the target VideoAsset -- same
+    # discipline as initiate_upload. A second concurrent finalize call for
+    # the same asset blocks here until this transaction (or, for a fresh
+    # finalize, the durable FINALIZING claim below) commits, then re-reads
+    # the row and observes the resulting terminal/claimed state.
+    locked_user = _lock_user_for_update(db, current_user.id)
+    project = _get_owned_project(db, project_id, current_user.id, for_update=True)
     video_asset = _get_owned_video_asset(db, project, video_asset_id, for_update=True)
 
     requested_parts = [{"part_number": part.part_number, "etag": part.etag} for part in payload.parts]
@@ -261,76 +367,207 @@ def finalize_upload(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Upload already finalized with a different idempotency key or payload",
             )
-        job = db.execute(
-            select(AnalysisJob)
-            .where(AnalysisJob.video_asset_id == video_asset.id)
-            .order_by(AnalysisJob.created_at.asc())
-        ).scalars().first()
-        if job is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Finalized video asset is missing its analysis job",
-            )
-        return FinalizeUploadResponse(
-            video_asset=VideoAssetRead.model_validate(video_asset),
-            analysis_job=AnalysisJobRead.model_validate(job),
-        )
+        return _load_finalize_response(db, video_asset)
 
-    if video_asset.status == VideoAssetStatus.UPLOAD_ABORTED:
+    if video_asset.status in (VideoAssetStatus.UPLOAD_ABORTED, VideoAssetStatus.CLEANUP_PENDING):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload was aborted")
 
-    expected_part_numbers = set(range(1, video_asset.part_count + 1))
-    requested_part_numbers = {part.part_number for part in payload.parts}
-    if len(payload.parts) != video_asset.part_count or requested_part_numbers != expected_part_numbers:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Finalize must include exactly one entry per part number 1.."
-                f"{video_asset.part_count}, with no duplicates or gaps"
-            ),
+    if video_asset.status == VideoAssetStatus.FINALIZING:
+        same_request = (
+            video_asset.finalize_idempotency_key == payload.idempotency_key
+            and video_asset.finalize_request_fingerprint == fingerprint
         )
+        if not same_request:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Upload finalize already in progress with a different "
+                    "idempotency key or payload"
+                ),
+            )
+        # Same recorded request replaying after a crash/timeout between the
+        # earlier commit below and the S3 completion call: resume without
+        # redoing structural validation or re-persisting the claim.
+    else:
+        expected_part_numbers = set(range(1, video_asset.part_count + 1))
+        requested_part_numbers = {part.part_number for part in payload.parts}
+        if (
+            len(payload.parts) != video_asset.part_count
+            or requested_part_numbers != expected_part_numbers
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"Finalize must include exactly one entry per part number 1.."
+                    f"{video_asset.part_count}, with no duplicates or gaps"
+                ),
+            )
 
-    # Lock the user row before the active-job aggregate check and the
-    # ledger/job writes below, for the same reason as in initiate_upload.
+        active_jobs = quota_service.active_analysis_job_count(db, locked_user.id)
+        if active_jobs >= quota_service.max_active_analysis_jobs(locked_user, settings):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Active analysis job quota exceeded"
+            )
+
+        # Crash-safe finalize claim: persist FINALIZING plus the idempotency
+        # key and request fingerprint, and COMMIT before ever calling S3. If
+        # the process crashes right after S3 accepts CompleteMultipartUpload
+        # but before this process observes success, this durable claim is
+        # what lets a replay with the same key/fingerprint recover safely
+        # instead of either double-completing or losing track of the object.
+        video_asset.status = VideoAssetStatus.FINALIZING
+        video_asset.finalize_idempotency_key = payload.idempotency_key
+        video_asset.finalize_request_fingerprint = fingerprint
+
+    # Release the locks held above before the (potentially slow) S3 call:
+    # nothing else in this request needs them until the completion phase
+    # re-locks below.
+    db.commit()
+
+    try:
+        storage.complete_multipart_upload(
+            object_key=video_asset.object_key,
+            upload_id=video_asset.upload_id,
+            parts=[UploadPart(part_number=part.part_number, etag=part.etag) for part in payload.parts],
+        )
+    except MultipartUploadNotFound:
+        # Recoverable only because a durable FINALIZING claim for this
+        # exact key/fingerprint is guaranteed to already be committed by
+        # both branches above: verify via head_object instead of trusting
+        # NoSuchUpload as success.
+        try:
+            metadata = storage.head_object(object_key=video_asset.object_key)
+        except ObjectNotFound:
+            # Genuinely missing -- not the ambiguous "crashed after S3
+            # accepted completion" case: the object never actually got
+            # completed in storage. Re-lock, revalidate the claim, and
+            # release outstanding reservations instead of leaving the
+            # asset stuck in FINALIZING forever.
+            locked_user = _lock_user_for_update(db, current_user.id)
+            video_asset = _get_owned_video_asset(
+                db, project, video_asset_id, for_update=True, populate_existing=True
+            )
+            claim_matches = (
+                video_asset.finalize_idempotency_key == payload.idempotency_key
+                and video_asset.finalize_request_fingerprint == fingerprint
+            )
+            if video_asset.status == VideoAssetStatus.FINALIZING and claim_matches:
+                reservation_service.release_analysis_reservation(db, video_asset)
+                reservation_service.release_storage_reservation(db, video_asset)
+                video_asset.status = VideoAssetStatus.UPLOAD_ABORTED
+                db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Multipart upload was not found and no object was completed; "
+                    "the upload must be retried"
+                ),
+            ) from None
+    else:
+        metadata = storage.head_object(object_key=video_asset.object_key)
+
+    # Re-lock User, then the active Project (excluding a tombstone), then
+    # the VideoAsset for the completion phase, and re-validate the claim is
+    # still exactly this request's before mutating anything: the S3 call
+    # above ran without holding any row locks, so a concurrent project
+    # delete may have tombstoned the project (and released reservations)
+    # while it was in flight.
     locked_user = _lock_user_for_update(db, current_user.id)
+    # populate_existing=True: this project row may already be present in
+    # this session's identity map from the lock taken at the top of this
+    # request, and a concurrent delete committed by another session must
+    # be observed here rather than returning stale in-memory attributes.
+    current_project = db.execute(
+        select(Project)
+        .where(Project.id == project.id, Project.owner_id == current_user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    video_asset = _get_owned_video_asset(
+        db, project, video_asset_id, for_update=True, populate_existing=True
+    )
 
-    active_jobs = quota_service.active_analysis_job_count(db, locked_user.id)
-    if active_jobs >= quota_service.max_active_analysis_jobs(locked_user, settings):
+    if current_project is None or current_project.deleted_at is not None:
+        # The project was tombstoned by a concurrent delete while this
+        # call's S3 completion was in flight. head_object above already
+        # confirmed the object now exists in storage -- possibly *after*
+        # the delete's own cleanup task already ran to completion against
+        # a not-yet-existent object -- so a fresh durable DELETE_OBJECT
+        # cleanup task is required rather than assuming an earlier one
+        # still covers it. Never create a job or report UPLOADED for a
+        # tombstoned project.
+        reservation_service.release_analysis_reservation(db, video_asset)
+        reservation_service.release_storage_reservation(db, video_asset)
+        video_asset.status = VideoAssetStatus.CLEANUP_PENDING
+        task = storage_cleanup_service.get_or_create_cleanup_task(
+            db,
+            project_id=video_asset.project_id,
+            video_asset_id=video_asset.id,
+            object_key=video_asset.object_key,
+            upload_id=None,
+            operation=StorageCleanupOperation.DELETE_OBJECT,
+        )
+        db.commit()
+        storage_cleanup_service.claim_and_process(db, task, storage)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Project was deleted")
+
+    claim_matches = (
+        video_asset.finalize_idempotency_key == payload.idempotency_key
+        and video_asset.finalize_request_fingerprint == fingerprint
+    )
+    if video_asset.status == VideoAssetStatus.UPLOADED and claim_matches:
+        return _load_finalize_response(db, video_asset)
+    if video_asset.status != VideoAssetStatus.FINALIZING or not claim_matches:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Active analysis job quota exceeded"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Upload finalize claim was superseded by a concurrent request",
         )
 
-    storage.complete_multipart_upload(
-        object_key=video_asset.object_key,
-        upload_id=video_asset.upload_id,
-        parts=[UploadPart(part_number=part.part_number, etag=part.etag) for part in payload.parts],
-    )
-    metadata = storage.head_object(object_key=video_asset.object_key)
     if metadata.size_bytes != video_asset.declared_size_bytes:
-        _abort_upload_and_release_reservation(db, video_asset, current_user.id)
+        _abort_and_queue_object_cleanup(db, video_asset, project, storage)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Uploaded object size does not match the declared size",
         )
     if metadata.size_bytes > settings.max_upload_size_bytes:
-        _abort_upload_and_release_reservation(db, video_asset, current_user.id)
+        _abort_and_queue_object_cleanup(db, video_asset, project, storage)
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail="Uploaded object exceeds the upload cap",
         )
     if metadata.content_type != video_asset.content_type:
-        _abort_upload_and_release_reservation(db, video_asset, current_user.id)
+        _abort_and_queue_object_cleanup(db, video_asset, project, storage)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Uploaded object content type does not match the declared content type",
         )
 
+    active_jobs = quota_service.active_analysis_job_count(db, locked_user.id)
+    if active_jobs >= quota_service.max_active_analysis_jobs(locked_user, settings):
+        # The active-job slot filled up during the S3 call window. The
+        # object already exists in storage at this point (the call above
+        # succeeded), so this must go through the same durable
+        # DELETE_OBJECT cleanup path as any other post-completion integrity
+        # failure -- a bare release-and-abort here would leave the
+        # just-completed object orphaned.
+        _abort_and_queue_object_cleanup(db, video_asset, project, storage)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Active analysis job quota exceeded"
+        )
+
     video_asset.actual_size_bytes = metadata.size_bytes
     video_asset.status = VideoAssetStatus.UPLOADED
     video_asset.retention_expires_at = utcnow() + timedelta(days=settings.asset_retention_days)
-    video_asset.finalize_idempotency_key = payload.idempotency_key
-    video_asset.finalize_request_fingerprint = fingerprint
 
+    # Reconcile the provisional storage-byte reservation to the actual
+    # counted size: release the reservation and count the real size instead
+    # of double-counting reservation + actual.
+    reservation_service.release_storage_reservation(db, video_asset)
+    video_asset.storage_counted_bytes = metadata.size_bytes
+
+    # DB-level unique constraint on video_asset_id backstops this against
+    # ever creating a second job for the same asset even if this idempotency
+    # check somehow raced.
     job = AnalysisJob(
         project_id=project.id,
         video_asset_id=video_asset.id,

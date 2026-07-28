@@ -35,8 +35,17 @@ ACTIVE_JOB_STATUSES = frozenset({JobStatus.QUEUED, JobStatus.RUNNING})
 
 class VideoAssetStatus(str, enum.Enum):
     UPLOAD_INITIATED = "upload_initiated"
+    # Crash-safe finalize claim: persisted (with idempotency key + request
+    # fingerprint) and committed BEFORE the S3 CompleteMultipartUpload call,
+    # so a crash between commit and storage completion leaves a durable,
+    # replayable claim instead of an untracked in-flight finalize.
+    FINALIZING = "finalizing"
     UPLOADED = "uploaded"
     UPLOAD_ABORTED = "upload_aborted"
+    # A finalize integrity failure or project tombstone queued a durable
+    # StorageCleanupTask for this asset's object/multipart upload; the
+    # object may still exist until that task completes.
+    CLEANUP_PENDING = "cleanup_pending"
 
 
 class VideoDurationStatus(str, enum.Enum):
@@ -99,3 +108,31 @@ class QuotaLedgerEventType(str, enum.Enum):
     ANALYSIS_COMPLETED = "analysis_completed"
     ANALYSIS_FAILED = "analysis_failed"
     ANALYSIS_CANCELLED = "analysis_cancelled"
+
+    # Storage-byte quota lifecycle, mirroring the analysis-seconds contract
+    # above: STORAGE_RESERVED books the declared size at upload initiate
+    # time; STORAGE_RESERVATION_RELEASED frees it if the upload never
+    # becomes UPLOADED (abort/mismatch/tombstone before finalize).
+    # UPLOAD_FINALIZED (existing event, reused here) is written at successful
+    # finalize with the actual counted size, alongside releasing the
+    # reservation, so counted bytes replace the provisional reservation
+    # instead of double-counting. STORAGE_RELEASED frees previously counted
+    # bytes when the object is later deleted (project tombstone cleanup or
+    # retention expiry).
+    STORAGE_RESERVED = "storage_reserved"
+    STORAGE_RESERVATION_RELEASED = "storage_reservation_released"
+    STORAGE_RELEASED = "storage_released"
+
+
+class StorageCleanupOperation(str, enum.Enum):
+    """The durable action a StorageCleanupTask must (eventually) perform."""
+
+    DELETE_OBJECT = "delete_object"
+    ABORT_MULTIPART = "abort_multipart"
+
+
+class StorageCleanupStatus(str, enum.Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"

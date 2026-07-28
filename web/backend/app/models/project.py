@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy import Uuid as UuidType
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +24,13 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UuidType(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # Soft-delete tombstone. NULL means active. Owner-facing CRUD/list/
+    # upload/signed-url lookups all exclude tombstoned projects; only the
+    # (read-only) admin API may still see them, so retention/cleanup
+    # metadata (child rows, ledger entries, cleanup tasks) survives for
+    # audit and durable cleanup instead of being hard-deleted.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     owner: Mapped["User"] = relationship(back_populates="projects")
     video_asset: Mapped["VideoAsset | None"] = relationship(

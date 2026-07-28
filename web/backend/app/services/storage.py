@@ -22,6 +22,43 @@ from app.config import Settings
 _MAX_OBJECT_KEY_SUFFIX_LENGTH = 10
 
 
+class ObjectNotFound(Exception):
+    """Raised when the storage backend reports an object key as genuinely
+    missing (S3: ``head_object`` 404/``NoSuchKey``).
+
+    Unlike ``MultipartUploadNotFound``, this is unambiguous: the caller
+    asked the storage backend directly whether the object exists, and it
+    does not. A caller recovering from ``MultipartUploadNotFound`` uses
+    this to distinguish "the completion was ambiguous but the object is
+    actually there" from "there is genuinely nothing to recover."
+    """
+
+    def __init__(self, *, object_key: str) -> None:
+        super().__init__(f"Object {object_key!r} was not found")
+        self.object_key = object_key
+
+
+class MultipartUploadNotFound(Exception):
+    """Raised when the storage backend reports the multipart upload id as
+    unknown (S3: ``NoSuchUpload``) during ``complete_multipart_upload``.
+
+    This is deliberately ambiguous: it can mean either "the upload id is
+    genuinely unknown/aborted" or "an earlier attempt already completed this
+    exact multipart upload, and the process crashed after S3 accepted the
+    completion but before our own DB commit landed." The storage layer no
+    longer guesses between these by checking object existence itself --
+    only a caller that has independently persisted a durable claim (e.g. a
+    ``VideoAsset`` already committed as ``FINALIZING`` for this exact
+    idempotency key + request fingerprint) may attempt recovery, by calling
+    ``head_object`` itself to verify the object.
+    """
+
+    def __init__(self, *, object_key: str, upload_id: str) -> None:
+        super().__init__(f"Multipart upload {upload_id!r} for object {object_key!r} was not found")
+        self.object_key = object_key
+        self.upload_id = upload_id
+
+
 @dataclass(frozen=True)
 class ObjectMetadata:
     size_bytes: int
@@ -48,6 +85,8 @@ class ObjectStorage(Protocol):
     ) -> None: ...
 
     def abort_multipart_upload(self, *, object_key: str, upload_id: str) -> None: ...
+
+    def delete_object(self, *, object_key: str) -> None: ...
 
     def head_object(self, *, object_key: str) -> ObjectMetadata: ...
 
@@ -122,22 +161,26 @@ class S3ObjectStorage:
             error_code = exc.response.get("Error", {}).get("Code")
             if error_code != "NoSuchUpload":
                 raise
-            # S3 also returns NoSuchUpload when this exact multipart upload
-            # was already completed by an earlier attempt that crashed (or
-            # was retried) after S3 accepted the completion but before our
-            # own DB commit landed. Treat that as an idempotent no-op, but
-            # only if the object genuinely exists — otherwise the upload id
-            # is unknown/aborted for a real reason and the error stands.
-            try:
-                self.head_object(object_key=object_key)
-            except ClientError:
-                raise exc from None
+            # Ambiguous by construction -- see MultipartUploadNotFound's
+            # docstring. The storage layer no longer resolves this itself;
+            # it is the caller's job to decide, using its own durable state,
+            # whether recovery via head_object is appropriate.
+            raise MultipartUploadNotFound(object_key=object_key, upload_id=upload_id) from exc
 
     def abort_multipart_upload(self, *, object_key: str, upload_id: str) -> None:
         self._client.abort_multipart_upload(Bucket=self._bucket, Key=object_key, UploadId=upload_id)
 
+    def delete_object(self, *, object_key: str) -> None:
+        self._client.delete_object(Bucket=self._bucket, Key=object_key)
+
     def head_object(self, *, object_key: str) -> ObjectMetadata:
-        response = self._client.head_object(Bucket=self._bucket, Key=object_key)
+        try:
+            response = self._client.head_object(Bucket=self._bucket, Key=object_key)
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code")
+            if error_code not in ("404", "NoSuchKey"):
+                raise
+            raise ObjectNotFound(object_key=object_key) from exc
         return ObjectMetadata(
             size_bytes=response["ContentLength"], content_type=response.get("ContentType")
         )

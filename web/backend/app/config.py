@@ -17,6 +17,7 @@ GIGABYTE = 1024 * 1024 * 1024
 DEFAULT_MONTHLY_ANALYSIS_SECONDS = 10 * 60 * 60  # 10 hours
 DEFAULT_MAX_UPLOAD_SIZE_BYTES = 20 * GIGABYTE  # 20 GiB
 DEFAULT_MAX_VIDEO_DURATION_SECONDS = 3 * 60 * 60  # 3 hours
+DEFAULT_STORAGE_BYTES = 50 * GIGABYTE  # 50 GiB
 
 
 class Settings(BaseSettings):
@@ -77,6 +78,7 @@ class Settings(BaseSettings):
     # Quota defaults (per-user overrides live in the users table)
     default_monthly_analysis_seconds: int = DEFAULT_MONTHLY_ANALYSIS_SECONDS
     default_max_active_analysis_jobs: int = 1
+    default_storage_bytes: int = DEFAULT_STORAGE_BYTES
 
     @field_validator("cors_allow_origins", mode="before")
     @classmethod

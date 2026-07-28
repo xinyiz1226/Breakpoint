@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 
 from botocore.exceptions import ClientError
 
-from app.services.storage import ObjectMetadata
+from app.services.storage import MultipartUploadNotFound, ObjectMetadata, ObjectNotFound
 
 _URL_PATTERN = re.compile(r"(https?://\S+)")
 
@@ -72,14 +72,21 @@ class FakeObjectStorage:
 
     Tests can pre-populate ``objects`` to simulate the state a real
     multipart upload would have left behind before calling finalize.
+    ``fail_next_deletes``/``fail_next_aborts`` let a test inject a
+    transient storage-side failure for the next N ``delete_object``/
+    ``abort_multipart_upload`` calls, to exercise durable
+    failed/pending-retry cleanup-task handling.
     """
 
     def __init__(self) -> None:
         self.uploads: dict[str, _FakeUpload] = {}
         self.completed_upload_ids: set[str] = set()
         self.aborted_upload_ids: set[str] = set()
+        self.deleted_object_keys: list[str] = []
         self.objects: dict[str, ObjectMetadata] = {}
         self.connection_ok: bool = True
+        self.fail_next_deletes: int = 0
+        self.fail_next_aborts: int = 0
 
     def generate_object_key(self, *, project_id: uuid.UUID, filename: str) -> str:
         suffix = PurePosixPath(filename).suffix.lower()
@@ -101,22 +108,35 @@ class FakeObjectStorage:
     def complete_multipart_upload(self, *, object_key: str, upload_id: str, parts) -> None:
         upload = self.uploads.get(upload_id)
         if upload is None or upload.object_key != object_key or upload_id in self.completed_upload_ids:
-            raise ClientError(
-                {"Error": {"Code": "NoSuchUpload", "Message": "The specified upload does not exist"}},
-                "CompleteMultipartUpload",
-            )
+            raise MultipartUploadNotFound(object_key=object_key, upload_id=upload_id)
         self.completed_upload_ids.add(upload_id)
         self.objects.setdefault(
             object_key, ObjectMetadata(size_bytes=0, content_type=upload.content_type)
         )
 
     def abort_multipart_upload(self, *, object_key: str, upload_id: str) -> None:
+        if self.fail_next_aborts > 0:
+            self.fail_next_aborts -= 1
+            raise ClientError(
+                {"Error": {"Code": "InternalError", "Message": "simulated abort failure"}},
+                "AbortMultipartUpload",
+            )
         self.aborted_upload_ids.add(upload_id)
+
+    def delete_object(self, *, object_key: str) -> None:
+        if self.fail_next_deletes > 0:
+            self.fail_next_deletes -= 1
+            raise ClientError(
+                {"Error": {"Code": "InternalError", "Message": "simulated delete failure"}},
+                "DeleteObject",
+            )
+        self.objects.pop(object_key, None)
+        self.deleted_object_keys.append(object_key)
 
     def head_object(self, *, object_key: str) -> ObjectMetadata:
         metadata = self.objects.get(object_key)
         if metadata is None:
-            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+            raise ObjectNotFound(object_key=object_key)
         return metadata
 
     def generate_presigned_get_url(self, *, object_key: str, expires_in_seconds: int) -> str:

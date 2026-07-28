@@ -112,14 +112,20 @@ def register(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
             )
-        # Unverified account retrying registration (e.g. the first
-        # verification email was never delivered): invalidate any
-        # outstanding, unused verification tokens so only the newly minted
-        # one is redeemable, then mint and send a fresh one. This avoids
-        # permanently stranding a registrant behind a 409 with no way to
-        # get a new email.
-        user = existing
+        # Lock the user row before invalidating stale tokens: two concurrent
+        # re-registrations for the same unverified account then serialize
+        # instead of racing on which one's token ends up "the" live one.
+        user = db.execute(
+            select(User).where(User.id == existing.id).with_for_update()
+        ).scalar_one()
         now = utcnow()
+        # Unverified account retrying registration (e.g. the first
+        # verification email was never delivered, or the real mailbox
+        # owner re-registering after an attacker who doesn't control the
+        # mailbox registered first): invalidate any outstanding, unused
+        # verification tokens so only the newly minted one is redeemable.
+        # This also avoids permanently stranding a registrant behind a 409
+        # with no way to get a new email.
         stale_tokens = db.execute(
             select(EmailToken).where(
                 EmailToken.user_id == user.id,
@@ -130,6 +136,13 @@ def register(
         for stale_token in stale_tokens:
             stale_token.used_at = now
     else:
+        # The real, login-controlling password hash is only ever assigned
+        # authoritatively (re)assigned at successful verification, from the
+        # matching token's pending_password_hash (see verify_email). Setting
+        # it here too, from the same password, keeps the single-registration
+        # path's is_verified=False rejection unchanged (still 403, not 401)
+        # while re-registration's overwrite is what verify_email actually
+        # fixes below.
         user = User(email=normalized_email, password_hash=hash_password(payload.password))
         db.add(user)
         db.flush()
@@ -140,6 +153,7 @@ def register(
             user_id=user.id,
             purpose=EmailTokenPurpose.VERIFY_EMAIL,
             token_hash=hash_token(raw_token),
+            pending_password_hash=hash_password(payload.password),
             expires_at=utcnow() + timedelta(hours=settings.email_verification_ttl_hours),
         )
     )
@@ -153,8 +167,26 @@ def register(
 @router.post("/verify-email", response_model=MessageResponse)
 def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)) -> MessageResponse:
     token_hash = hash_token(payload.token)
-    # Lock the token row so a concurrent replay of the same one-time token
-    # cannot both pass the is_usable check before either commits.
+    # Non-locking lookup only to identify the user, per the same
+    # lock-user-first discipline as login/refresh/reset below.
+    preview_token = db.execute(
+        select(EmailToken).where(
+            EmailToken.token_hash == token_hash,
+            EmailToken.purpose == EmailTokenPurpose.VERIFY_EMAIL,
+        )
+    ).scalar_one_or_none()
+    if preview_token is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+
+    user = db.execute(
+        select(User).where(User.id == preview_token.user_id).with_for_update()
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+
+    # Re-select and lock the token so a concurrent replay of the same
+    # one-time token cannot both pass the is_usable check before either
+    # commits.
     token = db.execute(
         select(EmailToken)
         .where(
@@ -163,15 +195,18 @@ def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)) -> 
         )
         .with_for_update()
     ).scalar_one_or_none()
-    if token is None or not token.is_usable:
+    if token is None or not token.is_usable or token.pending_password_hash is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
 
-    user = db.get(User, token.user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
-
-    token.used_at = utcnow()
+    # Whoever controls the mailbox -- by choosing which verification link
+    # to click -- controls the account's final password. Assign it
+    # atomically from this token and consume it; any other outstanding
+    # VERIFY_EMAIL token for this user (from an earlier registration
+    # attempt with a different password) was already invalidated at
+    # register time, so it cannot later overwrite this assignment.
+    user.password_hash = token.pending_password_hash
     user.is_verified = True
+    token.used_at = utcnow()
     db.commit()
     return MessageResponse(message="Email verified. You can now log in.")
 
@@ -184,7 +219,16 @@ def login(
     settings: Settings = Depends(get_settings),
 ) -> LoginResponse:
     normalized_email = payload.email.lower()
-    user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    # Lock the user row before verifying the password or creating a
+    # session: email uniquely identifies the row directly (no indirection
+    # through a token/session hash is needed here), so a single locked
+    # select suffices. This serializes login against a concurrent
+    # password-reset transaction (which also locks this row first), so a
+    # login using the pre-reset password can never sneak a new session in
+    # after the reset has revoked everything.
+    user = db.execute(
+        select(User).where(User.email == normalized_email).with_for_update()
+    ).scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not user.is_active:
@@ -219,21 +263,37 @@ def refresh(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
 
     token_hash = hash_token(raw_refresh_token)
-    # Lock the session row so only one concurrent refresh request can
-    # observe it as active and rotate it; a second concurrent request with
-    # the same (still-valid-looking) token waits for this transaction to
-    # commit and then correctly sees it as revoked/replaced.
+    # Non-locking lookup only to identify the user: the session row is the
+    # only way to discover which user this opaque token belongs to.
+    preview_session = db.execute(
+        select(RefreshSession).where(RefreshSession.token_hash == token_hash)
+    ).scalar_one_or_none()
+    if preview_session is None:
+        _clear_refresh_cookie(response, settings)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh session")
+
+    # Lock the user row before re-selecting/locking the session: this is
+    # the same serialization point login and reset-password use, so a
+    # concurrent reset (which revokes every session under this same lock)
+    # always fully happens-before or happens-after a refresh, never
+    # in-between it reading and it rotating.
+    user = db.execute(
+        select(User).where(User.id == preview_session.user_id).with_for_update()
+    ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        _clear_refresh_cookie(response, settings)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not available")
+
+    # Re-select and lock the session so a concurrent replay of the same
+    # opaque token cannot both pass the is_active check before either
+    # commits, and so it reflects any revocation a concurrent reset made
+    # while we were waiting for the user lock above.
     session = db.execute(
         select(RefreshSession).where(RefreshSession.token_hash == token_hash).with_for_update()
     ).scalar_one_or_none()
     if session is None or not session.is_active:
         _clear_refresh_cookie(response, settings)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh session")
-
-    user = db.get(User, session.user_id)
-    if user is None or not user.is_active:
-        _clear_refresh_cookie(response, settings)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not available")
 
     # Atomic rotation: mint the replacement before revoking the old session,
     # then commit both changes together so a crash never leaves the user
@@ -285,15 +345,38 @@ def forgot_password(
     email_sender: EmailSender = Depends(get_email_sender),
 ) -> MessageResponse:
     normalized_email = payload.email.lower()
-    user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
-    if user is not None and user.is_active:
+    # Non-locking lookup only to identify the user -- avoids leaking
+    # enumeration timing/behavior differences and mirrors the
+    # identify-then-lock protocol used by login/refresh/reset.
+    preview_user = db.execute(
+        select(User).where(User.email == normalized_email)
+    ).scalar_one_or_none()
+    if preview_user is not None and preview_user.is_active:
+        # Lock the User row -- the same serialization point login/refresh/
+        # reset use -- before touching any tokens, so this can never
+        # interleave inside a concurrent reset transaction.
+        user = db.execute(
+            select(User).where(User.id == preview_user.id).with_for_update()
+        ).scalar_one()
+
+        now = utcnow()
+        stale_tokens = db.execute(
+            select(EmailToken).where(
+                EmailToken.user_id == user.id,
+                EmailToken.purpose == EmailTokenPurpose.RESET_PASSWORD,
+                EmailToken.used_at.is_(None),
+            )
+        ).scalars()
+        for stale_token in stale_tokens:
+            stale_token.used_at = now
+
         raw_token = generate_opaque_token()
         db.add(
             EmailToken(
                 user_id=user.id,
                 purpose=EmailTokenPurpose.RESET_PASSWORD,
                 token_hash=hash_token(raw_token),
-                expires_at=utcnow() + timedelta(hours=settings.password_reset_ttl_hours),
+                expires_at=now + timedelta(hours=settings.password_reset_ttl_hours),
             )
         )
         db.commit()
@@ -307,8 +390,24 @@ def forgot_password(
 @router.post("/reset-password", response_model=MessageResponse)
 def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
     token_hash = hash_token(payload.token)
-    # Lock the token row so a concurrent replay of the same one-time token
-    # cannot both pass the is_usable check before either commits.
+    # Non-locking lookup only to identify the user.
+    preview_token = db.execute(
+        select(EmailToken).where(
+            EmailToken.token_hash == token_hash,
+            EmailToken.purpose == EmailTokenPurpose.RESET_PASSWORD,
+        )
+    ).scalar_one_or_none()
+    if preview_token is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+
+    # Lock the user row -- the same serialization point login/refresh use --
+    # before re-selecting/revalidating the token and mutating anything.
+    user = db.execute(
+        select(User).where(User.id == preview_token.user_id).with_for_update()
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+
     token = db.execute(
         select(EmailToken)
         .where(
@@ -320,12 +419,24 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     if token is None or not token.is_usable:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
 
-    user = db.get(User, token.user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
-
+    now = utcnow()
     user.password_hash = hash_password(payload.new_password)
-    token.used_at = utcnow()
+    token.used_at = now
+
+    # Invalidate every other outstanding, unused RESET_PASSWORD token for
+    # this user in the same locked transaction, so an older reset link
+    # (e.g. one an attacker requested, or a stale one from before this
+    # reset) can never be redeemed afterward.
+    sibling_tokens = db.execute(
+        select(EmailToken).where(
+            EmailToken.user_id == user.id,
+            EmailToken.purpose == EmailTokenPurpose.RESET_PASSWORD,
+            EmailToken.used_at.is_(None),
+            EmailToken.id != token.id,
+        )
+    ).scalars()
+    for sibling_token in sibling_tokens:
+        sibling_token.used_at = now
 
     active_sessions = db.execute(
         select(RefreshSession).where(
@@ -333,7 +444,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
         )
     ).scalars()
     for session in active_sessions:
-        session.revoked_at = utcnow()
+        session.revoked_at = now
 
     db.commit()
     return MessageResponse(message="Password reset. Please log in again.")

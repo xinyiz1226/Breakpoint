@@ -62,6 +62,20 @@ class EmailToken(UUIDPrimaryKeyMixin, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Only ever populated (and required by app-level invariant) for
+    # VERIFY_EMAIL tokens: the Argon2 hash of the password submitted with
+    # the registration/re-registration request that minted this token.
+    # Never exposed via any schema/response. On successful verification the
+    # router atomically assigns it to User.password_hash and consumes the
+    # token, so whoever controls the mailbox -- by choosing which
+    # verification link to click -- controls the account's final password,
+    # even if an earlier registration attempt (e.g. from an attacker who
+    # doesn't control the mailbox) chose a different password first.
+    # RESET_PASSWORD tokens never carry a password (the new password is
+    # submitted alongside the token at reset time instead), so this is
+    # always NULL for that purpose.
+    pending_password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     user: Mapped["User"] = relationship(back_populates="email_tokens")
 
     @property

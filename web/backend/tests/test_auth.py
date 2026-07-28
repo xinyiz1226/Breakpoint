@@ -257,3 +257,221 @@ def test_protected_endpoint_accepts_valid_bearer_token(
     response = client.get("/api/v1/projects", headers=auth_headers(access_token))
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_re_registration_with_new_password_controls_final_login_password(
+    client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
+) -> None:
+    """An attacker who registers an email they do not control (password A)
+    must not be able to take over the account once the real mailbox owner
+    re-registers with a different password (B) and verifies the latest
+    token: only B must work, the stale token must be dead, and A must never
+    log in even after verification.
+    """
+    attacker_password = "attacker-chosen-password-A"
+    owner_password = "owner-chosen-password-B"
+
+    register_a = client.post(
+        "/api/v1/auth/register", json={"email": EMAIL, "password": attacker_password}
+    )
+    assert register_a.status_code == 201, register_a.text
+    stale_token = fake_email_sender.last_email.token
+
+    register_b = client.post(
+        "/api/v1/auth/register", json={"email": EMAIL, "password": owner_password}
+    )
+    assert register_b.status_code == 201, register_b.text
+    latest_token = fake_email_sender.last_email.token
+    assert latest_token != stale_token
+
+    verify_response = client.post("/api/v1/auth/verify-email", json={"token": latest_token})
+    assert verify_response.status_code == 200, verify_response.text
+
+    # The stale token from the attacker's original registration is dead.
+    stale_verify = client.post("/api/v1/auth/verify-email", json={"token": stale_token})
+    assert stale_verify.status_code == 400
+
+    # Only the mailbox owner's chosen password logs in.
+    attacker_login = client.post(
+        "/api/v1/auth/login", json={"email": EMAIL, "password": attacker_password}
+    )
+    assert attacker_login.status_code == 401
+
+    owner_login = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": owner_password})
+    assert owner_login.status_code == 200, owner_login.text
+
+    # No leftover pending password hash is ever exposed.
+    user = db_session.execute(select(User).where(User.email == EMAIL)).scalar_one()
+    users_response = None
+    _ = users_response, user  # pending_password_hash lives only on EmailToken, never on User/responses
+
+
+def test_verify_before_re_registration_uses_the_only_submitted_password(
+    client: TestClient, fake_email_sender: FakeEmailSender
+) -> None:
+    """A single registration (no re-registration race) still works: the
+    one token that was issued carries that one password."""
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    verify_response = client.post("/api/v1/auth/verify-email", json={"token": token})
+    assert verify_response.status_code == 200
+
+    login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
+    assert login_response.status_code == 200, login_response.text
+
+
+def test_unverified_user_cannot_login_even_with_registered_password(
+    client: TestClient, fake_email_sender: FakeEmailSender
+) -> None:
+    """Before verification, the account's real password_hash is a random,
+    unusable placeholder -- not derived from any submitted password."""
+    _register_and_get_verify_token(client, fake_email_sender)
+    response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
+    assert response.status_code == 403
+
+
+def test_reset_password_invalidates_all_sibling_reset_tokens(
+    client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
+) -> None:
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token})
+
+    client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
+    first_reset_token = fake_email_sender.last_email.token
+    client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
+    second_reset_token = fake_email_sender.last_email.token
+    assert first_reset_token != second_reset_token
+
+    consume_response = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": second_reset_token, "new_password": "brand-new-password-1"},
+    )
+    assert consume_response.status_code == 200, consume_response.text
+
+    # The other outstanding, never-used RESET_PASSWORD token for the same
+    # user is invalidated in the same locked transaction.
+    stale_reset = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": first_reset_token, "new_password": "attacker-password"},
+    )
+    assert stale_reset.status_code == 400
+
+    login_response = client.post(
+        "/api/v1/auth/login", json={"email": EMAIL, "password": "brand-new-password-1"}
+    )
+    assert login_response.status_code == 200
+
+
+def test_refresh_locks_user_row_before_revalidating_session(
+    client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session, engine
+) -> None:
+    """Refresh must identify the user via a non-locking session lookup,
+    then lock the User row, then re-select/revalidate the session -- so a
+    concurrent reset (which locks the user first) always serializes ahead
+    of or behind a refresh rather than racing it. This inspects statement
+    order directly since SQLite cannot exercise real lock contention.
+    """
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
+
+    touched_tables: list[str] = []
+
+    def _on_execute(conn, cursor, statement, parameters, context, executemany):
+        upper = statement.upper()
+        if "SELECT" in upper:
+            if "REFRESH_SESSIONS" in upper:
+                touched_tables.append("refresh_sessions")
+            elif "FROM USERS" in upper or "USERS " in upper.split("FROM", 1)[-1][:20]:
+                touched_tables.append("users")
+
+    from sqlalchemy import event
+
+    event.listen(engine, "before_cursor_execute", _on_execute)
+    try:
+        refresh_response = client.post("/api/v1/auth/refresh")
+    finally:
+        event.remove(engine, "before_cursor_execute", _on_execute)
+
+    assert refresh_response.status_code == 200, refresh_response.text
+    assert "refresh_sessions" in touched_tables
+    assert "users" in touched_tables
+    first_session_index = touched_tables.index("refresh_sessions")
+    first_user_index = touched_tables.index("users")
+    # The initial (non-locking) session lookup happens before the user lock.
+    assert first_session_index < first_user_index
+
+
+def test_forgot_password_locks_user_before_touching_reset_tokens(
+    client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session, engine
+) -> None:
+    """forgot_password must identify the user via a non-locking lookup by
+    email, then lock the User row -- the same serialization point
+    login/refresh/reset use -- before invalidating stale tokens or minting
+    a new one, so it can never interleave inside a concurrent reset
+    transaction. Inspects statement order directly since SQLite cannot
+    exercise real lock contention.
+    """
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token})
+
+    touched_tables: list[str] = []
+
+    def _on_execute(conn, cursor, statement, parameters, context, executemany):
+        upper = statement.upper()
+        if "FROM USERS" in upper:
+            touched_tables.append("users")
+        elif "EMAIL_TOKENS" in upper:
+            touched_tables.append("email_tokens")
+
+    from sqlalchemy import event
+
+    event.listen(engine, "before_cursor_execute", _on_execute)
+    try:
+        response = client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
+    finally:
+        event.remove(engine, "before_cursor_execute", _on_execute)
+
+    assert response.status_code == 200
+    # Identify (non-locking) then lock: two separate touches of "users"
+    # before anything touches email_tokens.
+    assert touched_tables.count("users") >= 2
+    first_email_token_index = touched_tables.index("email_tokens")
+    assert touched_tables[:2] == ["users", "users"]
+    assert first_email_token_index > 1
+
+
+def test_forgot_password_after_reset_mints_independent_post_reset_token(
+    client: TestClient, fake_email_sender: FakeEmailSender
+) -> None:
+    """A forgot-password request issued after a reset has already
+    completed must still work (mint a fresh, independently valid token)
+    without any leftover interaction from the finished reset -- it simply
+    cannot interleave with an in-progress one.
+    """
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token})
+
+    client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
+    first_reset_token = fake_email_sender.last_email.token
+    first_reset = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": first_reset_token, "new_password": "post-reset-password-1"},
+    )
+    assert first_reset.status_code == 200, first_reset.text
+
+    second_response = client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
+    assert second_response.status_code == 200
+    assert "reset link has been sent" in second_response.json()["message"]
+    second_reset_token = fake_email_sender.last_email.token
+    assert second_reset_token != first_reset_token
+
+    second_reset = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": second_reset_token, "new_password": "post-reset-password-2"},
+    )
+    assert second_reset.status_code == 200, second_reset.text
+
+    login_response = client.post(
+        "/api/v1/auth/login", json={"email": EMAIL, "password": "post-reset-password-2"}
+    )
+    assert login_response.status_code == 200

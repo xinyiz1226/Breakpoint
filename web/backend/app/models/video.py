@@ -89,6 +89,14 @@ class VideoAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     finalize_idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     finalize_request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Durable reservation/accounting fields. These -- not ledger history --
+    # are authoritative for whether there is anything left to release, so
+    # release helpers are idempotent even if called more than once (e.g. a
+    # finalize failure followed by a later project tombstone).
+    analysis_reserved_seconds: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    storage_reserved_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    storage_counted_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+
     project: Mapped["Project"] = relationship(back_populates="video_asset")
     analysis_jobs: Mapped[list["AnalysisJob"]] = relationship(
         back_populates="video_asset", cascade="all, delete-orphan"

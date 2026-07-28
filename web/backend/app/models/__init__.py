@@ -6,6 +6,7 @@ generating migrations, and the app imports it at startup so
 """
 
 from app.models.auth import EmailToken, RefreshSession
+from app.models.cleanup import StorageCleanupTask
 from app.models.job import AnalysisJob, ExportJob
 from app.models.project import Project
 from app.models.quota import QuotaLedgerEntry
@@ -24,4 +25,5 @@ __all__ = [
     "Rally",
     "RallyEdit",
     "QuotaLedgerEntry",
+    "StorageCleanupTask",
 ]

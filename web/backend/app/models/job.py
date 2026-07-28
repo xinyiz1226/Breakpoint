@@ -29,7 +29,11 @@ class AnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UuidType(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     video_asset_id: Mapped[uuid.UUID] = mapped_column(
-        UuidType(as_uuid=True), ForeignKey("video_assets.id", ondelete="CASCADE"), nullable=False, index=True
+        UuidType(as_uuid=True),
+        ForeignKey("video_assets.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,  # exactly one analysis job per video asset
+        index=True,
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UuidType(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True

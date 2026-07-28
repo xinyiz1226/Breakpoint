@@ -18,6 +18,7 @@ class AdminUserRead(BaseModel):
     is_verified: bool
     quota_monthly_analysis_seconds_override: int | None
     quota_max_active_analysis_jobs_override: int | None
+    quota_storage_bytes_override: int | None
     created_at: datetime
 
 
@@ -29,6 +30,7 @@ class AdminProjectRead(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None
 
 
 class AdminAnalysisJobRead(BaseModel):

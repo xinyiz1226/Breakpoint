@@ -9,3 +9,6 @@ class QuotaRead(BaseModel):
     monthly_analysis_seconds_remaining: float
     max_active_analysis_jobs: int
     active_analysis_job_count: int
+    storage_bytes_limit: int
+    storage_bytes_used: int
+    storage_bytes_remaining: int

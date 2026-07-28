@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, Enum, Integer, String
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -30,6 +30,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "quota_max_active_analysis_jobs_override IS NULL OR quota_max_active_analysis_jobs_override >= 0",
             name="ck_users_quota_max_active_analysis_jobs_override_non_negative",
         ),
+        CheckConstraint(
+            "quota_storage_bytes_override IS NULL OR quota_storage_bytes_override >= 0",
+            name="ck_users_quota_storage_bytes_override_non_negative",
+        ),
     )
 
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
@@ -49,6 +53,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     quota_max_active_analysis_jobs_override: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )
+    # NULL means "use the configured default" (Settings.default_storage_bytes);
+    # 0 is a valid override meaning "no storage quota at all". See
+    # app.services.quota, which selects via `is not None`, not truthiness.
+    quota_storage_bytes_override: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     refresh_sessions: Mapped[list["RefreshSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

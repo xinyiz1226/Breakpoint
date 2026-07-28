@@ -32,6 +32,11 @@ def monthly_analysis_seconds_limit(user: User, settings: Settings) -> int:
     return override if override is not None else settings.default_monthly_analysis_seconds
 
 
+def storage_bytes_limit(user: User, settings: Settings) -> int:
+    override = user.quota_storage_bytes_override
+    return override if override is not None else settings.default_storage_bytes
+
+
 def max_active_analysis_jobs(user: User, settings: Settings) -> int:
     override = user.quota_max_active_analysis_jobs_override
     return override if override is not None else settings.default_max_active_analysis_jobs
@@ -74,6 +79,29 @@ def active_analysis_job_count(db: Session, user_id: uuid.UUID) -> int:
     stmt = select(func.count(AnalysisJob.id)).where(
         AnalysisJob.owner_id == user_id,
         AnalysisJob.status.in_(list(ACTIVE_JOB_STATUSES)),
+    )
+    return int(db.execute(stmt).scalar_one())
+
+
+def storage_bytes_used(db: Session, user_id: uuid.UUID) -> int:
+    """Running ledger balance of storage bytes currently counted against the
+    caller: outstanding reservations (declared size, not yet finalized) plus
+    actually-counted bytes for finalized/uploaded assets.
+
+    Unlike ``monthly_analysis_seconds_used``, this is not bucketed by
+    calendar month -- storage accumulates over time and must be compared
+    against a standing limit, not a monthly one.
+    """
+    stmt = select(func.coalesce(func.sum(QuotaLedgerEntry.bytes_delta), 0)).where(
+        QuotaLedgerEntry.user_id == user_id,
+        QuotaLedgerEntry.event_type.in_(
+            (
+                QuotaLedgerEventType.STORAGE_RESERVED,
+                QuotaLedgerEventType.STORAGE_RESERVATION_RELEASED,
+                QuotaLedgerEventType.UPLOAD_FINALIZED,
+                QuotaLedgerEventType.STORAGE_RELEASED,
+            )
+        ),
     )
     return int(db.execute(stmt).scalar_one())
 
