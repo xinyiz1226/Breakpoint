@@ -55,3 +55,19 @@ class StorageCleanupTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_error: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Durable lease: minted fresh each time a claim transaction sets this
+    # task RUNNING (either the initial synchronous attempt or a later sweep
+    # reclaiming a stale RUNNING task). The completion transaction re-locks
+    # by id *and* this exact lease token; if a stale claimer's lease has
+    # since been superseded by a fresher one, its completion attempt finds
+    # no matching row and safely no-ops instead of mutating state or
+    # accounting it no longer owns.
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UuidType(as_uuid=True), nullable=True)
+
+    # Only set for tasks that must not be processed before a scheduled time
+    # (e.g. the ABORT_MULTIPART task created at upload-initiate time, due
+    # at the multipart upload's expiry). NULL means "due immediately".
+    not_before: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )

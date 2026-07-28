@@ -135,6 +135,33 @@ def _fingerprint_parts(parts: list[dict[str, object]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _compute_part_lengths(size_bytes: int, part_count: int, min_part_size_bytes: int) -> list[int]:
+    """Deterministic part sizing: parts ``1..part_count-1`` each get
+    ``ceil(size_bytes / part_count)`` bytes, and the final part gets
+    whatever remains.
+
+    Raises ``ValueError`` (mapped by the caller to a 422) if the remainder
+    is not a positive length -- a declared size too small for the
+    requested part count can never be split into that many positive-length
+    parts -- or if a non-final part would be smaller than
+    ``min_part_size_bytes``. A single-part upload (``part_count == 1``) is
+    always allowed regardless of size, since there is no non-final part to
+    constrain and S3 has no minimum for the last/only part of an upload.
+    """
+    part_size = -(-size_bytes // part_count)  # ceil division
+    final_part_size = size_bytes - part_size * (part_count - 1)
+    if final_part_size <= 0:
+        raise ValueError(
+            f"Declared size {size_bytes} cannot be split into {part_count} positive-length parts"
+        )
+    if part_count > 1 and part_size < min_part_size_bytes:
+        raise ValueError(
+            f"Non-final part size {part_size} is smaller than the "
+            f"{min_part_size_bytes} byte minimum part size"
+        )
+    return [part_size] * (part_count - 1) + [final_part_size]
+
+
 def _abort_and_queue_object_cleanup(
     db: Session,
     video_asset: VideoAsset,
@@ -168,7 +195,7 @@ def _abort_and_queue_object_cleanup(
     )
     db.commit()
 
-    storage_cleanup_service.claim_and_process(db, task, storage)
+    storage_cleanup_service.claim_and_process(db, task.id, storage)
 
 
 @router.post("/uploads", response_model=UploadInitiateResponse, status_code=status.HTTP_201_CREATED)
@@ -235,9 +262,21 @@ def initiate_upload(
             detail="Storage-bytes quota exceeded",
         )
 
+    # Deterministic part sizing, validated before ever calling
+    # create_multipart_upload: a declared size too small for the requested
+    # part count, or a non-final part smaller than the configured minimum,
+    # is rejected here rather than producing an unbounded/invalid part plan.
+    try:
+        part_lengths = _compute_part_lengths(
+            payload.size_bytes, payload.part_count, settings.multipart_min_part_size_bytes
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
     object_key = storage.generate_object_key(project_id=project.id, filename=payload.filename)
     upload_id = storage.create_multipart_upload(object_key=object_key, content_type=payload.content_type)
 
+    upload_expires_at = utcnow() + timedelta(hours=settings.multipart_upload_ttl_hours)
     video_asset = VideoAsset(
         project_id=project.id,
         owner_id=current_user.id,
@@ -249,6 +288,7 @@ def initiate_upload(
         status=VideoAssetStatus.UPLOAD_INITIATED,
         upload_id=upload_id,
         part_count=payload.part_count,
+        upload_expires_at=upload_expires_at,
     )
     db.add(video_asset)
     try:
@@ -280,7 +320,7 @@ def initiate_upload(
     part_urls = storage.generate_presigned_part_urls(
         object_key=object_key,
         upload_id=upload_id,
-        part_count=payload.part_count,
+        part_lengths=part_lengths,
         expires_in_seconds=settings.presigned_url_ttl_seconds,
     )
 
@@ -304,13 +344,32 @@ def initiate_upload(
         video_asset_id=video_asset.id,
         bytes_delta=payload.size_bytes,
     )
+
+    # Schedule a durable ABORT_MULTIPART cleanup task for this upload's
+    # expiry, so an abandoned multipart upload is eventually reclaimed by
+    # run_due_storage_cleanup_sweep even if the client never finalizes or
+    # deletes the project. Cancelled by finalize_upload once this exact
+    # upload durably claims FINALIZING (see cancel_scheduled_task below).
+    storage_cleanup_service.get_or_create_cleanup_task(
+        db,
+        project_id=project.id,
+        video_asset_id=video_asset.id,
+        object_key=object_key,
+        upload_id=upload_id,
+        operation=StorageCleanupOperation.ABORT_MULTIPART,
+        not_before=upload_expires_at,
+    )
+
     db.commit()
 
     return UploadInitiateResponse(
         video_asset_id=video_asset.id,
         object_key=object_key,
         upload_id=upload_id,
-        part_urls=[PartUploadUrl(part_number=n, url=url) for n, url in part_urls],
+        part_urls=[
+            PartUploadUrl(part_number=n, url=url, content_length_bytes=length)
+            for n, url, length in part_urls
+        ],
         expires_in_seconds=settings.presigned_url_ttl_seconds,
     )
 
@@ -419,6 +478,14 @@ def finalize_upload(
         video_asset.finalize_idempotency_key = payload.idempotency_key
         video_asset.finalize_request_fingerprint = fingerprint
 
+        # This exact upload request has now durably claimed FINALIZING, so
+        # the scheduled multipart-expiry ABORT_MULTIPART task can never be
+        # allowed to abort it: cancel it in the same transaction as the
+        # claim commit below.
+        storage_cleanup_service.cancel_scheduled_task(
+            db, video_asset_id=video_asset.id, operation=StorageCleanupOperation.ABORT_MULTIPART
+        )
+
     # Release the locks held above before the (potentially slow) S3 call:
     # nothing else in this request needs them until the completion phase
     # re-locks below.
@@ -508,7 +575,7 @@ def finalize_upload(
             operation=StorageCleanupOperation.DELETE_OBJECT,
         )
         db.commit()
-        storage_cleanup_service.claim_and_process(db, task, storage)
+        storage_cleanup_service.claim_and_process(db, task.id, storage)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Project was deleted")
 
     claim_matches = (

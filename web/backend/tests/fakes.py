@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 import smtplib
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
@@ -76,6 +77,13 @@ class FakeObjectStorage:
     transient storage-side failure for the next N ``delete_object``/
     ``abort_multipart_upload`` calls, to exercise durable
     failed/pending-retry cleanup-task handling.
+
+    ``on_delete_object``/``on_abort_multipart_upload`` are optional
+    one-shot callbacks (cleared immediately before firing, so they never
+    recurse) invoked right before the corresponding operation actually
+    runs. They let a test deterministically interleave a second,
+    independent ``Session``'s work -- e.g. a concurrent cleanup claim --
+    in the middle of this call, without needing real threads.
     """
 
     def __init__(self) -> None:
@@ -87,6 +95,8 @@ class FakeObjectStorage:
         self.connection_ok: bool = True
         self.fail_next_deletes: int = 0
         self.fail_next_aborts: int = 0
+        self.on_delete_object: Callable[[], None] | None = None
+        self.on_abort_multipart_upload: Callable[[], None] | None = None
 
     def generate_object_key(self, *, project_id: uuid.UUID, filename: str) -> str:
         suffix = PurePosixPath(filename).suffix.lower()
@@ -98,11 +108,11 @@ class FakeObjectStorage:
         return upload_id
 
     def generate_presigned_part_urls(
-        self, *, object_key: str, upload_id: str, part_count: int, expires_in_seconds: int
-    ) -> list[tuple[int, str]]:
+        self, *, object_key: str, upload_id: str, part_lengths: list[int], expires_in_seconds: int
+    ) -> list[tuple[int, str, int]]:
         return [
-            (n, f"https://fake-s3.test/{object_key}?part={n}&uploadId={upload_id}")
-            for n in range(1, part_count + 1)
+            (n, f"https://fake-s3.test/{object_key}?part={n}&uploadId={upload_id}", length)
+            for n, length in enumerate(part_lengths, start=1)
         ]
 
     def complete_multipart_upload(self, *, object_key: str, upload_id: str, parts) -> None:
@@ -115,6 +125,9 @@ class FakeObjectStorage:
         )
 
     def abort_multipart_upload(self, *, object_key: str, upload_id: str) -> None:
+        hook, self.on_abort_multipart_upload = self.on_abort_multipart_upload, None
+        if hook is not None:
+            hook()
         if self.fail_next_aborts > 0:
             self.fail_next_aborts -= 1
             raise ClientError(
@@ -124,6 +137,9 @@ class FakeObjectStorage:
         self.aborted_upload_ids.add(upload_id)
 
     def delete_object(self, *, object_key: str) -> None:
+        hook, self.on_delete_object = self.on_delete_object, None
+        if hook is not None:
+            hook()
         if self.fail_next_deletes > 0:
             self.fail_next_deletes -= 1
             raise ClientError(

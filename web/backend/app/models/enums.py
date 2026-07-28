@@ -136,3 +136,7 @@ class StorageCleanupStatus(str, enum.Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    # A scheduled task (e.g. the expiry-driven ABORT_MULTIPART task created
+    # at upload-initiate time) that became moot before it ever ran -- e.g.
+    # the upload finalized successfully -- and must never be processed.
+    CANCELLED = "cancelled"

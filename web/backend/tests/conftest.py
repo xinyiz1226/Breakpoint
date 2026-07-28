@@ -33,6 +33,10 @@ def test_settings() -> Settings:
         default_monthly_analysis_seconds=36000,
         max_upload_size_bytes=20 * 1024 * 1024 * 1024,
         max_video_duration_seconds=3 * 60 * 60,
+        # Smaller than the production default so existing fixtures' modest
+        # declared sizes/part counts stay realistic multi-part examples
+        # without needing multi-gigabyte test payloads.
+        multipart_min_part_size_bytes=1024 * 1024,
         app_base_url="http://localhost:3000",
         cors_allow_origins=["http://localhost:3000"],
     )

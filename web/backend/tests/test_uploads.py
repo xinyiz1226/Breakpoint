@@ -523,7 +523,10 @@ def test_finalize_mismatch_deletes_object_and_marks_cleanup_task_completed(
 
     task = (
         db_session.query(StorageCleanupTask)
-        .filter(StorageCleanupTask.object_key == object_key)
+        .filter(
+            StorageCleanupTask.object_key == object_key,
+            StorageCleanupTask.operation == StorageCleanupOperation.DELETE_OBJECT,
+        )
         .one()
     )
     assert task.operation == StorageCleanupOperation.DELETE_OBJECT
@@ -553,7 +556,10 @@ def test_finalize_mismatch_with_injected_delete_failure_preserves_retryable_task
     assert object_key in fake_storage.objects
     task = (
         db_session.query(StorageCleanupTask)
-        .filter(StorageCleanupTask.object_key == object_key)
+        .filter(
+            StorageCleanupTask.object_key == object_key,
+            StorageCleanupTask.operation == StorageCleanupOperation.DELETE_OBJECT,
+        )
         .one()
     )
     assert task.status == StorageCleanupStatus.FAILED
@@ -864,7 +870,10 @@ def test_finalize_returns_conflict_when_project_tombstoned_during_storage_comple
         # A durable DELETE_OBJECT cleanup task exists for the object that
         # was, in fact, just completed in storage.
         task = session.execute(
-            select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id == video_asset_id)
+            select(StorageCleanupTask).where(
+                StorageCleanupTask.video_asset_id == video_asset_id,
+                StorageCleanupTask.operation == StorageCleanupOperation.DELETE_OBJECT,
+            )
         ).scalars().one()
         assert task.operation == StorageCleanupOperation.DELETE_OBJECT
     finally:
@@ -974,7 +983,10 @@ def test_finalize_active_job_slot_lost_during_completion_queues_cleanup_and_retu
         assert video_asset.storage_reserved_bytes == 0
 
         task = session.execute(
-            select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id == video_asset_id)
+            select(StorageCleanupTask).where(
+                StorageCleanupTask.video_asset_id == video_asset_id,
+                StorageCleanupTask.operation == StorageCleanupOperation.DELETE_OBJECT,
+            )
         ).scalars().one()
         assert task.operation == StorageCleanupOperation.DELETE_OBJECT
         assert task.status == StorageCleanupStatus.COMPLETED
@@ -1065,3 +1077,148 @@ def test_finalize_does_not_double_release_reservations_after_concurrent_tombston
     quota_after = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
     assert quota_after["monthly_analysis_seconds_used"] == 0
     assert quota_after["storage_bytes_used"] == 0
+
+
+# --- Rereview item 4: bounded multipart + expiry cleanup contract ---------------
+
+
+def test_initiate_upload_exposes_content_length_bytes_summing_to_declared_size(
+    client: TestClient, db_session: Session
+) -> None:
+    token, project_id = _authenticated_project(client, db_session)
+    initiate_body = _initiate_upload(client, token, project_id).json()
+
+    part_urls = initiate_body["part_urls"]
+    assert len(part_urls) == 2
+    assert sum(part["content_length_bytes"] for part in part_urls) == DECLARED_SIZE
+    # ceil(10 MiB / 2) = 5 MiB per part, evenly in this case.
+    assert part_urls[0]["content_length_bytes"] == DECLARED_SIZE // 2
+    assert part_urls[1]["content_length_bytes"] == DECLARED_SIZE // 2
+
+
+def test_initiate_upload_allows_a_single_part_below_the_minimum_part_size(
+    client: TestClient, db_session: Session, test_settings
+) -> None:
+    token, project_id = _authenticated_project(client, db_session)
+    tiny_size = min(1024, test_settings.multipart_min_part_size_bytes - 1)
+    response = client.post(
+        f"/api/v1/projects/{project_id}/uploads",
+        json={
+            "filename": "tiny.mp4",
+            "content_type": CONTENT_TYPE,
+            "size_bytes": tiny_size,
+            "duration_seconds": DECLARED_DURATION,
+            "part_count": 1,
+        },
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 201, response.text
+    part_urls = response.json()["part_urls"]
+    assert len(part_urls) == 1
+    assert part_urls[0]["content_length_bytes"] == tiny_size
+
+
+def test_initiate_upload_rejects_a_non_final_part_smaller_than_the_minimum(
+    client: TestClient, db_session: Session, test_settings, fake_storage: FakeObjectStorage
+) -> None:
+    token, project_id = _authenticated_project(client, db_session)
+    min_size = test_settings.multipart_min_part_size_bytes
+    # part_count=2 with a declared size just under 2x the minimum makes the
+    # non-final part smaller than the minimum (ceil((2*min - 100) / 2) ==
+    # min - 50), which must be rejected before any multipart upload is
+    # created in storage.
+    undersized_total = 2 * min_size - 100
+    response = client.post(
+        f"/api/v1/projects/{project_id}/uploads",
+        json={
+            "filename": "undersized.mp4",
+            "content_type": CONTENT_TYPE,
+            "size_bytes": undersized_total,
+            "duration_seconds": DECLARED_DURATION,
+            "part_count": 2,
+        },
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 422, response.text
+    assert len(fake_storage.uploads) == 0
+
+    video_asset_count = (
+        db_session.execute(select(VideoAsset).where(VideoAsset.project_id == uuid.UUID(project_id)))
+        .scalars()
+        .all()
+    )
+    assert video_asset_count == []
+
+
+def test_initiate_upload_rejects_a_declared_size_too_small_for_the_part_count(
+    client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    """A declared size that cannot be split into ``part_count`` positive
+    lengths (final part would be <= 0) must be rejected before creating a
+    multipart upload -- a tiny declared size can never generate an
+    unbounded/invalid number of parts."""
+    token, project_id = _authenticated_project(client, db_session)
+    response = client.post(
+        f"/api/v1/projects/{project_id}/uploads",
+        json={
+            "filename": "toosmall.mp4",
+            "content_type": CONTENT_TYPE,
+            "size_bytes": 3,
+            "duration_seconds": DECLARED_DURATION,
+            "part_count": 5,
+        },
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 422, response.text
+    assert len(fake_storage.uploads) == 0
+
+
+def test_initiate_upload_schedules_an_abort_multipart_expiry_cleanup_task(
+    client: TestClient, db_session: Session, test_settings
+) -> None:
+    token, project_id = _authenticated_project(client, db_session)
+    initiate_body = _initiate_upload(client, token, project_id).json()
+    video_asset_id = uuid.UUID(initiate_body["video_asset_id"])
+
+    video_asset = db_session.get(VideoAsset, video_asset_id)
+    assert video_asset.upload_expires_at is not None
+
+    task = (
+        db_session.execute(
+            select(StorageCleanupTask).where(
+                StorageCleanupTask.video_asset_id == video_asset_id,
+                StorageCleanupTask.operation == StorageCleanupOperation.ABORT_MULTIPART,
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert task.status == StorageCleanupStatus.PENDING
+    assert task.upload_id == initiate_body["upload_id"]
+    assert task.not_before == video_asset.upload_expires_at
+
+
+def test_finalize_cancels_the_scheduled_expiry_abort_task(
+    client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    token, project_id = _authenticated_project(client, db_session)
+    initiate_body = _initiate_upload(client, token, project_id).json()
+    video_asset_id = uuid.UUID(initiate_body["video_asset_id"])
+    fake_storage.objects[initiate_body["object_key"]] = ObjectMetadata(
+        size_bytes=DECLARED_SIZE, content_type=CONTENT_TYPE
+    )
+
+    response = _finalize_upload(client, token, project_id, initiate_body["video_asset_id"])
+    assert response.status_code == 200, response.text
+
+    task = (
+        db_session.execute(
+            select(StorageCleanupTask).where(
+                StorageCleanupTask.video_asset_id == video_asset_id,
+                StorageCleanupTask.operation == StorageCleanupOperation.ABORT_MULTIPART,
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert task.status == StorageCleanupStatus.CANCELLED

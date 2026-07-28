@@ -217,7 +217,7 @@ def delete_project(
         db.commit()
 
         if task is not None:
-            storage_cleanup_service.claim_and_process(db, task, storage)
+            storage_cleanup_service.claim_and_process(db, task.id, storage)
     else:
         project.deleted_at = utcnow()
         db.commit()

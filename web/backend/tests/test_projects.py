@@ -280,9 +280,16 @@ def test_delete_project_with_uploaded_video_queues_delete_object_and_releases_on
         .scalars()
         .all()
     )
-    assert len(tasks) == 1
-    assert tasks[0].operation == StorageCleanupOperation.DELETE_OBJECT
-    assert tasks[0].status == StorageCleanupStatus.COMPLETED
+    # Two tasks now exist for this asset: the multipart-expiry ABORT_MULTIPART
+    # task scheduled at initiate time (cancelled once finalize durably
+    # claimed this upload, so the expiry sweep can never abort a completed
+    # request) and the DELETE_OBJECT task this project delete queued.
+    delete_tasks = [t for t in tasks if t.operation == StorageCleanupOperation.DELETE_OBJECT]
+    abort_tasks = [t for t in tasks if t.operation == StorageCleanupOperation.ABORT_MULTIPART]
+    assert len(delete_tasks) == 1
+    assert delete_tasks[0].status == StorageCleanupStatus.COMPLETED
+    assert len(abort_tasks) == 1
+    assert abort_tasks[0].status == StorageCleanupStatus.CANCELLED
 
     # Storage bytes released; counted bytes were released rather than
     # left permanently accounted against the user.

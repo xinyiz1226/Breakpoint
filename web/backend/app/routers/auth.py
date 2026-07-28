@@ -108,16 +108,25 @@ def register(
     existing = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
 
     if existing is not None:
-        if existing.is_verified or not existing.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
-            )
         # Lock the user row before invalidating stale tokens: two concurrent
         # re-registrations for the same unverified account then serialize
         # instead of racing on which one's token ends up "the" live one.
+        # populate_existing=True: ``existing`` above may already be this
+        # exact row in this session's identity map, and a concurrent
+        # verify/disable committed while we waited for the lock must be
+        # observed here rather than trusting that stale snapshot -- so the
+        # gates below are re-evaluated against the freshly locked row, not
+        # ``existing``.
         user = db.execute(
-            select(User).where(User.id == existing.id).with_for_update()
+            select(User)
+            .where(User.id == existing.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one()
+        if user.is_verified or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+            )
         now = utcnow()
         # Unverified account retrying registration (e.g. the first
         # verification email was never delivered, or the real mailbox
@@ -186,7 +195,10 @@ def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)) -> 
 
     # Re-select and lock the token so a concurrent replay of the same
     # one-time token cannot both pass the is_usable check before either
-    # commits.
+    # commits. populate_existing=True: this token row may already be
+    # present in this session's identity map (e.g. from the preview lookup
+    # above), and a concurrent commit from another session must be
+    # observed here rather than returning stale in-memory attributes.
     token = db.execute(
         select(EmailToken)
         .where(
@@ -194,6 +206,7 @@ def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)) -> 
             EmailToken.purpose == EmailTokenPurpose.VERIFY_EMAIL,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if token is None or not token.is_usable or token.pending_password_hash is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
@@ -287,9 +300,16 @@ def refresh(
     # Re-select and lock the session so a concurrent replay of the same
     # opaque token cannot both pass the is_active check before either
     # commits, and so it reflects any revocation a concurrent reset made
-    # while we were waiting for the user lock above.
+    # while we were waiting for the user lock above. populate_existing=True:
+    # this session row may already be present in this session's identity
+    # map (e.g. from the preview lookup above), and a concurrent commit
+    # from another session (a reset revoking it) must be observed here
+    # rather than returning stale in-memory attributes.
     session = db.execute(
-        select(RefreshSession).where(RefreshSession.token_hash == token_hash).with_for_update()
+        select(RefreshSession)
+        .where(RefreshSession.token_hash == token_hash)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if session is None or not session.is_active:
         _clear_refresh_cookie(response, settings)
@@ -351,37 +371,48 @@ def forgot_password(
     preview_user = db.execute(
         select(User).where(User.email == normalized_email)
     ).scalar_one_or_none()
-    if preview_user is not None and preview_user.is_active:
+    if preview_user is not None:
         # Lock the User row -- the same serialization point login/refresh/
         # reset use -- before touching any tokens, so this can never
         # interleave inside a concurrent reset transaction.
+        # populate_existing=True: ``preview_user`` above may already be
+        # this exact row in this session's identity map, and a concurrent
+        # disable committed while we waited for the lock must be observed
+        # here rather than trusting that stale snapshot -- so whether to
+        # mint/send anything is decided against the freshly locked row.
         user = db.execute(
-            select(User).where(User.id == preview_user.id).with_for_update()
+            select(User)
+            .where(User.id == preview_user.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one()
 
-        now = utcnow()
-        stale_tokens = db.execute(
-            select(EmailToken).where(
-                EmailToken.user_id == user.id,
-                EmailToken.purpose == EmailTokenPurpose.RESET_PASSWORD,
-                EmailToken.used_at.is_(None),
-            )
-        ).scalars()
-        for stale_token in stale_tokens:
-            stale_token.used_at = now
+        if user.is_active:
+            now = utcnow()
+            stale_tokens = db.execute(
+                select(EmailToken).where(
+                    EmailToken.user_id == user.id,
+                    EmailToken.purpose == EmailTokenPurpose.RESET_PASSWORD,
+                    EmailToken.used_at.is_(None),
+                )
+            ).scalars()
+            for stale_token in stale_tokens:
+                stale_token.used_at = now
 
-        raw_token = generate_opaque_token()
-        db.add(
-            EmailToken(
-                user_id=user.id,
-                purpose=EmailTokenPurpose.RESET_PASSWORD,
-                token_hash=hash_token(raw_token),
-                expires_at=now + timedelta(hours=settings.password_reset_ttl_hours),
+            raw_token = generate_opaque_token()
+            db.add(
+                EmailToken(
+                    user_id=user.id,
+                    purpose=EmailTokenPurpose.RESET_PASSWORD,
+                    token_hash=hash_token(raw_token),
+                    expires_at=now + timedelta(hours=settings.password_reset_ttl_hours),
+                )
             )
-        )
-        db.commit()
-        reset_url = f"{settings.app_base_url}/reset-password?token={raw_token}"
-        send_password_reset_email(email_sender, to_address=user.email, reset_url=reset_url)
+            db.commit()
+            reset_url = f"{settings.app_base_url}/reset-password?token={raw_token}"
+            send_password_reset_email(email_sender, to_address=user.email, reset_url=reset_url)
+        else:
+            db.commit()
 
     # Always the same response, whether or not the email is registered.
     return MessageResponse(message=_GENERIC_FORGOT_PASSWORD_MESSAGE)
@@ -408,6 +439,10 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     if user is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
 
+    # populate_existing=True: this token row may already be present in
+    # this session's identity map (e.g. from the preview lookup above),
+    # and a concurrent commit from another session must be observed here
+    # rather than returning stale in-memory attributes.
     token = db.execute(
         select(EmailToken)
         .where(
@@ -415,6 +450,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
             EmailToken.purpose == EmailTokenPurpose.RESET_PASSWORD,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if token is None or not token.is_usable:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
@@ -426,22 +462,29 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     # Invalidate every other outstanding, unused RESET_PASSWORD token for
     # this user in the same locked transaction, so an older reset link
     # (e.g. one an attacker requested, or a stale one from before this
-    # reset) can never be redeemed afterward.
+    # reset) can never be redeemed afterward. populate_existing=True for
+    # the same reason as above: any of these rows may already be present
+    # in this session's identity map from an earlier lookup in this same
+    # request lifecycle.
     sibling_tokens = db.execute(
-        select(EmailToken).where(
+        select(EmailToken)
+        .where(
             EmailToken.user_id == user.id,
             EmailToken.purpose == EmailTokenPurpose.RESET_PASSWORD,
             EmailToken.used_at.is_(None),
             EmailToken.id != token.id,
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalars()
     for sibling_token in sibling_tokens:
         sibling_token.used_at = now
 
     active_sessions = db.execute(
-        select(RefreshSession).where(
-            RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None)
-        )
+        select(RefreshSession)
+        .where(RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None))
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalars()
     for session in active_sessions:
         session.revoked_at = now

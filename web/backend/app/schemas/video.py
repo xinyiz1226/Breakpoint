@@ -38,6 +38,13 @@ class UploadInitiateRequest(BaseModel):
 class PartUploadUrl(BaseModel):
     part_number: int
     url: str
+    content_length_bytes: int = Field(
+        description=(
+            "The exact byte length this part's presigned URL is signed for "
+            "(bound via the S3 Content-Length signing parameter). The "
+            "client must upload exactly this many bytes for this part."
+        )
+    )
 
 
 class UploadInitiateResponse(BaseModel):

@@ -83,6 +83,17 @@ class VideoAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     upload_id: Mapped[str] = mapped_column(String(512), nullable=False)
     part_count: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # When a not-yet-finalized multipart upload's presigned part URLs
+    # expire (Settings.multipart_upload_ttl_hours after initiate). A
+    # durable ABORT_MULTIPART StorageCleanupTask with a matching
+    # ``not_before`` is created in the same transaction as this asset, so
+    # an abandoned upload is eventually aborted and its reservations
+    # released even if the client never returns. NULL once the upload
+    # reaches a terminal state (finalize claim cancels the scheduled task).
+    upload_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Finalize idempotency. Populated on the first successful finalize call;
     # replay with the same key + payload fingerprint returns the same result,
     # replay with a different payload under the same key is rejected (409).

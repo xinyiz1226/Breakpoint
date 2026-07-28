@@ -77,8 +77,8 @@ class ObjectStorage(Protocol):
     def create_multipart_upload(self, *, object_key: str, content_type: str) -> str: ...
 
     def generate_presigned_part_urls(
-        self, *, object_key: str, upload_id: str, part_count: int, expires_in_seconds: int
-    ) -> list[tuple[int, str]]: ...
+        self, *, object_key: str, upload_id: str, part_lengths: list[int], expires_in_seconds: int
+    ) -> list[tuple[int, str, int]]: ...
 
     def complete_multipart_upload(
         self, *, object_key: str, upload_id: str, parts: list[UploadPart]
@@ -124,10 +124,10 @@ class S3ObjectStorage:
         return response["UploadId"]
 
     def generate_presigned_part_urls(
-        self, *, object_key: str, upload_id: str, part_count: int, expires_in_seconds: int
-    ) -> list[tuple[int, str]]:
-        urls: list[tuple[int, str]] = []
-        for part_number in range(1, part_count + 1):
+        self, *, object_key: str, upload_id: str, part_lengths: list[int], expires_in_seconds: int
+    ) -> list[tuple[int, str, int]]:
+        urls: list[tuple[int, str, int]] = []
+        for part_number, length in enumerate(part_lengths, start=1):
             url = self._client.generate_presigned_url(
                 "upload_part",
                 Params={
@@ -135,10 +135,15 @@ class S3ObjectStorage:
                     "Key": object_key,
                     "UploadId": upload_id,
                     "PartNumber": part_number,
+                    # Binds the client's Content-Length header to exactly
+                    # this part's expected length, so a browser cannot
+                    # upload a different-sized part than what the
+                    # size/part_count contract validated.
+                    "ContentLength": length,
                 },
                 ExpiresIn=expires_in_seconds,
             )
-            urls.append((part_number, url))
+            urls.append((part_number, url, length))
         return urls
 
     def complete_multipart_upload(
@@ -168,7 +173,19 @@ class S3ObjectStorage:
             raise MultipartUploadNotFound(object_key=object_key, upload_id=upload_id) from exc
 
     def abort_multipart_upload(self, *, object_key: str, upload_id: str) -> None:
-        self._client.abort_multipart_upload(Bucket=self._bucket, Key=object_key, UploadId=upload_id)
+        try:
+            self._client.abort_multipart_upload(
+                Bucket=self._bucket, Key=object_key, UploadId=upload_id
+            )
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code")
+            if error_code != "NoSuchUpload":
+                raise
+            # A retried abort against an upload that is already gone
+            # (e.g. a stale-recovery sweep reclaiming a task whose
+            # earlier attempt actually succeeded before crashing) is the
+            # desired end state, not a failure -- narrowly idempotent
+            # against this exact, unambiguous error code only.
 
     def delete_object(self, *, object_key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=object_key)

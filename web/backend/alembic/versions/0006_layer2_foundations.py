@@ -12,8 +12,12 @@ Adds:
   ``storage_counted_bytes``: durable reservation/accounting fields so
   release helpers are idempotent without inferring state from ledger
   history alone.
+- ``video_assets.upload_expires_at``: multipart upload expiry, used by the
+  matching scheduled ABORT_MULTIPART cleanup task's ``not_before``.
 - ``storage_cleanup_tasks``: durable, retryable outbox for
-  delete_object/abort_multipart operations.
+  delete_object/abort_multipart operations, including a ``lease_token``
+  (atomic claim/steal-proof leasing) and ``not_before`` (scheduled/expiry
+  tasks that must not be processed before due).
 - A unique index on ``analysis_jobs.video_asset_id`` so at most one
   analysis job can ever exist per video asset.
 
@@ -52,7 +56,8 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "PENDING", "RUNNING", "COMPLETED", "FAILED", name="storagecleanupstatus", native_enum=False, length=16
+                "PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED",
+                name="storagecleanupstatus", native_enum=False, length=16
             ),
             nullable=False,
         ),
@@ -60,6 +65,8 @@ def upgrade() -> None:
         sa.Column("last_error", sa.String(length=2000), nullable=True),
         sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("lease_token", sa.Uuid(), nullable=True),
+        sa.Column("not_before", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -71,6 +78,9 @@ def upgrade() -> None:
     op.create_index(op.f("ix_storage_cleanup_tasks_status"), "storage_cleanup_tasks", ["status"], unique=False)
     op.create_index(
         op.f("ix_storage_cleanup_tasks_video_asset_id"), "storage_cleanup_tasks", ["video_asset_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_storage_cleanup_tasks_not_before"), "storage_cleanup_tasks", ["not_before"], unique=False
     )
 
     op.drop_index(op.f("ix_analysis_jobs_video_asset_id"), table_name="analysis_jobs")
@@ -84,6 +94,7 @@ def upgrade() -> None:
     op.add_column("video_assets", sa.Column("analysis_reserved_seconds", sa.Float(), nullable=False))
     op.add_column("video_assets", sa.Column("storage_reserved_bytes", sa.BigInteger(), nullable=False))
     op.add_column("video_assets", sa.Column("storage_counted_bytes", sa.BigInteger(), nullable=False))
+    op.add_column("video_assets", sa.Column("upload_expires_at", sa.DateTime(timezone=True), nullable=True))
 
     with op.batch_alter_table("users") as batch_op:
         batch_op.create_check_constraint(
@@ -96,6 +107,7 @@ def downgrade() -> None:
     with op.batch_alter_table("users") as batch_op:
         batch_op.drop_constraint("ck_users_quota_storage_bytes_override_non_negative", type_="check")
 
+    op.drop_column("video_assets", "upload_expires_at")
     op.drop_column("video_assets", "storage_counted_bytes")
     op.drop_column("video_assets", "storage_reserved_bytes")
     op.drop_column("video_assets", "analysis_reserved_seconds")
@@ -106,6 +118,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_analysis_jobs_video_asset_id"), table_name="analysis_jobs")
     op.create_index(op.f("ix_analysis_jobs_video_asset_id"), "analysis_jobs", ["video_asset_id"], unique=False)
 
+    op.drop_index(op.f("ix_storage_cleanup_tasks_not_before"), table_name="storage_cleanup_tasks")
     op.drop_index(op.f("ix_storage_cleanup_tasks_video_asset_id"), table_name="storage_cleanup_tasks")
     op.drop_index(op.f("ix_storage_cleanup_tasks_status"), table_name="storage_cleanup_tasks")
     op.drop_index(op.f("ix_storage_cleanup_tasks_project_id"), table_name="storage_cleanup_tasks")

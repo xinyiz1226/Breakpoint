@@ -55,12 +55,30 @@ def apply_authoritative_duration(
         select(User).where(User.id == preview_asset.owner_id).with_for_update()
     ).scalar_one()
 
+    # populate_existing=True: these rows may already be present in this
+    # session's identity map (e.g. from an earlier lookup in a longer-lived
+    # caller, or a stale preload in a test), and a concurrent commit from
+    # another session that already reconciled this exact asset/job must be
+    # observed here rather than returning stale in-memory attributes --
+    # otherwise the idempotency check below could miss and this call would
+    # redundantly release/re-reserve using stale figures.
     video_asset = db.execute(
-        select(VideoAsset).where(VideoAsset.id == video_asset_id).with_for_update()
+        select(VideoAsset)
+        .where(VideoAsset.id == video_asset_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one()
     job = db.execute(
-        select(AnalysisJob).where(AnalysisJob.id == analysis_job_id).with_for_update()
+        select(AnalysisJob)
+        .where(AnalysisJob.id == analysis_job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one()
+
+    if job.video_asset_id != video_asset.id or job.owner_id != user.id:
+        raise ValueError(
+            "analysis_job_id does not belong to the given video_asset_id/owner"
+        )
 
     # Idempotent replay: this exact authoritative duration has already been
     # recorded and reconciled for this asset. Ledger entries and job status

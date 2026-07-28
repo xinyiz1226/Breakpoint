@@ -33,10 +33,15 @@ def _client_error(code: str) -> ClientError:
 
 
 class _StubClient:
-    def __init__(self, *, complete_error: ClientError | None = None) -> None:
+    def __init__(
+        self, *, complete_error: ClientError | None = None, abort_error: ClientError | None = None
+    ) -> None:
         self._complete_error = complete_error
+        self._abort_error = abort_error
         self.complete_calls = 0
         self.delete_calls: list[tuple[str, str]] = []
+        self.abort_calls: list[tuple[str, str, str]] = []
+        self.presigned_url_calls: list[dict] = []
 
     def complete_multipart_upload(self, **kwargs):
         self.complete_calls += 1
@@ -45,6 +50,15 @@ class _StubClient:
 
     def delete_object(self, *, Bucket: str, Key: str):
         self.delete_calls.append((Bucket, Key))
+
+    def abort_multipart_upload(self, *, Bucket: str, Key: str, UploadId: str):
+        self.abort_calls.append((Bucket, Key, UploadId))
+        if self._abort_error is not None:
+            raise self._abort_error
+
+    def generate_presigned_url(self, ClientMethod: str, Params: dict, ExpiresIn: int):
+        self.presigned_url_calls.append({"ClientMethod": ClientMethod, "Params": dict(Params), "ExpiresIn": ExpiresIn})
+        return f"https://stub.test/{Params['Key']}?part={Params['PartNumber']}"
 
 
 @pytest.fixture
@@ -100,3 +114,57 @@ def test_delete_object_calls_the_underlying_client(storage: S3ObjectStorage) -> 
 
     storage.delete_object(object_key="projects/x/source/y.mp4")
     assert stub.delete_calls == [(storage._bucket, "projects/x/source/y.mp4")]
+
+
+def test_generate_presigned_part_urls_binds_content_length_per_part(storage: S3ObjectStorage) -> None:
+    """Each presigned ``upload_part`` URL must sign a ``ContentLength``
+    ``Params`` entry, binding the client's Content-Length header to exactly
+    the length this part is allowed to be -- otherwise a browser could
+    upload a wildly different-sized part than the one the size/part_count
+    contract validated against.
+    """
+    stub = _StubClient()
+    storage._client = stub
+
+    part_lengths = [5 * 1024 * 1024, 3 * 1024 * 1024]
+    urls = storage.generate_presigned_part_urls(
+        object_key="projects/x/source/y.mp4",
+        upload_id="upload-1",
+        part_lengths=part_lengths,
+        expires_in_seconds=3600,
+    )
+
+    assert [entry[0] for entry in urls] == [1, 2]
+    assert [entry[2] for entry in urls] == part_lengths
+    assert len(stub.presigned_url_calls) == 2
+    for call, expected_length, expected_part_number in zip(
+        stub.presigned_url_calls, part_lengths, [1, 2]
+    ):
+        assert call["Params"]["ContentLength"] == expected_length
+        assert call["Params"]["PartNumber"] == expected_part_number
+        assert call["Params"]["UploadId"] == "upload-1"
+
+
+# --- Independent review round 2 item 1: narrow abort_multipart_upload idempotency --
+
+
+def test_abort_multipart_upload_swallows_no_such_upload(storage: S3ObjectStorage) -> None:
+    """A retried abort against a multipart upload that is already gone
+    (e.g. a stale-recovery sweep reclaiming a task whose earlier attempt
+    actually succeeded in storage before crashing) must be treated as
+    success, not as a failure -- the desired end state (no such upload)
+    already holds."""
+    stub = _StubClient(abort_error=_client_error("NoSuchUpload"))
+    storage._client = stub
+
+    storage.abort_multipart_upload(object_key="projects/x/source/y.mp4", upload_id="upload-1")
+    assert stub.abort_calls == [(storage._bucket, "projects/x/source/y.mp4", "upload-1")]
+
+
+def test_abort_multipart_upload_reraises_other_client_errors(storage: S3ObjectStorage) -> None:
+    stub = _StubClient(abort_error=_client_error("AccessDenied"))
+    storage._client = stub
+
+    with pytest.raises(ClientError) as excinfo:
+        storage.abort_multipart_upload(object_key="projects/x/source/y.mp4", upload_id="upload-1")
+    assert excinfo.value.response["Error"]["Code"] == "AccessDenied"

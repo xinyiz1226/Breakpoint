@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import pytest
+from fastapi import HTTPException, Response
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.auth import RefreshSession
+from app.models.auth import EmailToken, RefreshSession
+from app.models.base import utcnow
 from app.models.user import User
+from app.routers import auth
+from app.schemas.auth import ResetPasswordRequest
+from app.security import hash_token
 from tests.conftest import auth_headers
 from tests.fakes import FakeEmailSender
 
@@ -475,3 +481,241 @@ def test_forgot_password_after_reset_mints_independent_post_reset_token(
         "/api/v1/auth/login", json={"email": EMAIL, "password": "post-reset-password-2"}
     )
     assert login_response.status_code == 200
+
+
+# --- Rereview item 1: stale identity-map rows must not be trusted -------------
+#
+# The tests below use two genuinely independent ``Session`` objects (not the
+# TestClient, which gets a brand-new session per HTTP request and therefore
+# can never itself hold a stale identity-map entry). Session A preloads a
+# row -- mimicking the router's own internal state at the point just before
+# its locking reselect -- then session B independently mutates and commits
+# that same row. Session A's own call into the router function must then
+# observe B's committed state via its FOR UPDATE reselect, not a stale
+# in-memory copy, because SQLAlchemy does not refresh already-identity-mapped
+# rows on a plain ``select()`` without ``populate_existing=True``.
+
+
+def _request_with_cookie(name: str, value: str):
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "headers": [(b"cookie", f"{name}={value}".encode())],
+    }
+    return Request(scope)
+
+
+def test_refresh_observes_concurrently_revoked_session_despite_stale_preload(
+    client: TestClient, fake_email_sender: FakeEmailSender, session_factory, test_settings
+) -> None:
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token})
+    login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
+    assert login_response.status_code == 200, login_response.text
+    raw_refresh_token = client.cookies.get(test_settings.refresh_cookie_name)
+    assert raw_refresh_token is not None
+    token_hash = hash_token(raw_refresh_token)
+
+    session_a = session_factory()
+    session_b = session_factory()
+    try:
+        # Session A preloads the session row into its own identity map --
+        # exactly what would happen if it had already looked at this row
+        # earlier in a longer-lived transaction.
+        preloaded = session_a.execute(
+            select(RefreshSession).where(RefreshSession.token_hash == token_hash)
+        ).scalar_one()
+        assert preloaded.revoked_at is None
+        user_id = preloaded.user_id
+
+        # Session B independently revokes the same session and commits,
+        # simulating a concurrent reset-password transaction.
+        b_row = session_b.execute(
+            select(RefreshSession).where(RefreshSession.token_hash == token_hash)
+        ).scalar_one()
+        b_row.revoked_at = utcnow()
+        session_b.commit()
+
+        request = _request_with_cookie(test_settings.refresh_cookie_name, raw_refresh_token)
+        response = Response()
+        with pytest.raises(HTTPException) as excinfo:
+            auth.refresh(request=request, response=response, db=session_a, settings=test_settings)
+        assert excinfo.value.status_code == 401
+
+        # No new session was minted from A's stale, seemingly-still-active
+        # preloaded copy.
+        remaining_sessions = (
+            session_a.execute(select(RefreshSession).where(RefreshSession.user_id == user_id))
+            .scalars()
+            .all()
+        )
+        assert len(remaining_sessions) == 1
+        assert remaining_sessions[0].revoked_at is not None
+    finally:
+        session_a.close()
+        session_b.close()
+
+
+def test_reset_password_observes_concurrently_used_token_despite_stale_preload(
+    client: TestClient, fake_email_sender: FakeEmailSender, session_factory
+) -> None:
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
+    raw_reset_token = fake_email_sender.last_email.token
+    token_hash = hash_token(raw_reset_token)
+
+    session_a = session_factory()
+    session_b = session_factory()
+    try:
+        preloaded = session_a.execute(
+            select(EmailToken).where(EmailToken.token_hash == token_hash)
+        ).scalar_one()
+        assert preloaded.used_at is None
+
+        # Session B independently consumes the same token and commits,
+        # simulating a concurrent reset-password request winning the race.
+        b_token = session_b.execute(
+            select(EmailToken).where(EmailToken.token_hash == token_hash)
+        ).scalar_one()
+        b_token.used_at = utcnow()
+        session_b.commit()
+
+        with pytest.raises(HTTPException) as excinfo:
+            auth.reset_password(
+                ResetPasswordRequest(token=raw_reset_token, new_password="attacker-new-password-1"),
+                db=session_a,
+            )
+        assert excinfo.value.status_code == 400
+
+        # The attacker's password never took effect.
+        login_response = client.post(
+            "/api/v1/auth/login", json={"email": EMAIL, "password": "attacker-new-password-1"}
+        )
+        assert login_response.status_code == 401
+    finally:
+        session_a.close()
+        session_b.close()
+
+
+def test_register_rechecks_verification_state_after_lock_despite_stale_preload(
+    client: TestClient, fake_email_sender: FakeEmailSender, session_factory, test_settings
+) -> None:
+    """register's re-registration branch previews the existing account
+    (non-locking), then locks it. If session A's preview of that row is
+    stale -- e.g. because it already touched the row earlier in a
+    longer-lived transaction -- and session B concurrently verifies the
+    account and commits, A's own populate_existing reselect at lock time
+    must observe the fresh (now verified) state and reject with 409
+    rather than trusting its stale unverified snapshot to invalidate/mint
+    a new pending-password token."""
+    from app.schemas.auth import RegisterRequest, VerifyEmailRequest
+
+    raw_token = _register_and_get_verify_token(client, fake_email_sender)
+
+    session_a = session_factory()
+    session_b = session_factory()
+    try:
+        preloaded = session_a.execute(select(User).where(User.email == EMAIL)).scalar_one()
+        assert preloaded.is_verified is False
+        user_id = preloaded.id
+
+        # Session B independently verifies the account and commits,
+        # simulating a concurrent verification racing the re-registration.
+        auth.verify_email(VerifyEmailRequest(token=raw_token), db=session_b)
+        assert session_b.execute(select(User).where(User.id == user_id)).scalar_one().is_verified
+
+        with pytest.raises(HTTPException) as excinfo:
+            auth.register(
+                RegisterRequest(email=EMAIL, password="attacker-new-password-1"),
+                db=session_a,
+                settings=test_settings,
+                email_sender=fake_email_sender,
+            )
+        assert excinfo.value.status_code == 409
+
+        # No new pending-password verification token was minted from A's
+        # stale, seemingly-still-unverified snapshot.
+        remaining_tokens = (
+            session_a.execute(
+                select(EmailToken).where(
+                    EmailToken.user_id == user_id,
+                    EmailToken.purpose == auth.EmailTokenPurpose.VERIFY_EMAIL,
+                    EmailToken.used_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert remaining_tokens == []
+
+        # The attacker's password never took effect: the mailbox owner's
+        # original password still logs in, the attacker's does not.
+        login_original = client.post(
+            "/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD}
+        )
+        assert login_original.status_code == 200, login_original.text
+        login_attacker = client.post(
+            "/api/v1/auth/login",
+            json={"email": EMAIL, "password": "attacker-new-password-1"},
+        )
+        assert login_attacker.status_code == 401
+    finally:
+        session_a.close()
+        session_b.close()
+
+
+def test_forgot_password_rechecks_active_state_after_lock_despite_stale_preload(
+    client: TestClient, fake_email_sender: FakeEmailSender, session_factory, test_settings
+) -> None:
+    """forgot_password previews the user by email (non-locking), then
+    locks it. If session A's preview is stale -- e.g. because it already
+    touched the row earlier -- and session B concurrently disables the
+    account and commits, A's own populate_existing reselect at lock time
+    must observe the fresh (now inactive) state and mint/send nothing,
+    preserving the generic response."""
+    from app.schemas.auth import ForgotPasswordRequest
+
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token})
+
+    session_a = session_factory()
+    session_b = session_factory()
+    try:
+        preloaded = session_a.execute(select(User).where(User.email == EMAIL)).scalar_one()
+        assert preloaded.is_active is True
+        user_id = preloaded.id
+
+        # Session B independently disables the account and commits,
+        # simulating a concurrent admin action racing forgot-password.
+        b_user = session_b.execute(select(User).where(User.id == user_id)).scalar_one()
+        b_user.is_active = False
+        session_b.commit()
+
+        emails_before = len(fake_email_sender.sent_emails)
+        response = auth.forgot_password(
+            ForgotPasswordRequest(email=EMAIL),
+            db=session_a,
+            settings=test_settings,
+            email_sender=fake_email_sender,
+        )
+        assert response.message == auth._GENERIC_FORGOT_PASSWORD_MESSAGE
+
+        # No reset token was minted and no email was sent from A's stale,
+        # seemingly-still-active snapshot.
+        reset_tokens = (
+            session_a.execute(
+                select(EmailToken).where(
+                    EmailToken.user_id == user_id,
+                    EmailToken.purpose == auth.EmailTokenPurpose.RESET_PASSWORD,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert reset_tokens == []
+        assert len(fake_email_sender.sent_emails) == emails_before
+    finally:
+        session_a.close()
+        session_b.close()

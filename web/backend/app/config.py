@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = DEFAULT_MAX_UPLOAD_SIZE_BYTES
     max_video_duration_seconds: int = DEFAULT_MAX_VIDEO_DURATION_SECONDS
     multipart_min_part_size_bytes: int = 8 * 1024 * 1024  # S3 minimum is 5 MiB
+    # How long a multipart upload's presigned part URLs/upload_id remain
+    # valid before the durable expiry-sweep contract (see
+    # app.services.storage_cleanup.run_due_storage_cleanup_sweep) is allowed
+    # to abort it and release its reservations.
+    multipart_upload_ttl_hours: int = 24
     asset_retention_days: int = 7
 
     # Quota defaults (per-user overrides live in the users table)
