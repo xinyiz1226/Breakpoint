@@ -8,6 +8,7 @@ __pycache__/
 *.mp4
 tests/
 !engine/tests/
+!web/backend/tests/
 
 # Desktop app
 desktop/node_modules/
@@ -17,3 +18,8 @@ desktop/release/
 dist-engine/
 build-engine/
 .worktrees/
+
+# Web backend
+web/backend/.venv/
+.pytest_cache/
+*.db

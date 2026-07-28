@@ -23,8 +23,17 @@ deployment requirements.
 - Use ordinary email login or magic-link authentication.
 - Store original videos and exported videos for seven days.
 - Store reports, project metadata, edit decisions, and job history long term.
-- Limit uploads to a single video, with the product limit defined as no more
-  than 10 GB and no more than three hours per video.
+- Limit uploads to a single video. The initial implementation caps declared
+  upload size at 20 GiB (env-configurable, `MAX_UPLOAD_SIZE_BYTES`) and the
+  product duration limit remains no more than 3 hours per video
+  (env-configurable, `MAX_VIDEO_DURATION_SECONDS`, default 10800). The API
+  validates the client-declared duration against this cap at upload
+  initiation and provisionally reserves monthly analysis-seconds quota
+  against it, since real usage cannot be known before analysis. The
+  authoritative duration is still worker-determined: the future worker's
+  first step (ffprobe) must reject (mark the analysis job failed) and
+  release/reconcile the reservation for assets whose real duration turns out
+  to exceed the cap, since the client declaration is never fully trusted.
 - Run the full existing analysis pipeline by default: audio hit detection,
   segmentation, vision ranking, and player identity. Keep a fast audio-only mode
   as an internal fallback or debugging option.
@@ -127,7 +136,13 @@ per project. A project owns analysis jobs, rallies, edits, and export jobs.
 
 Represents a stored uploaded video or preview proxy. Fields include owner,
 project, object key, original filename, content type, size, duration, format,
-retention expiry, and processing status.
+retention expiry, and processing status. There are two duration fields with
+different authority: `declared_duration_seconds` is the client-declared
+value supplied at upload initiation, validated against the duration cap and
+used to reserve monthly analysis quota; `duration_seconds` and its check
+status (`within_limit` / `exceeded` against the video duration cap) are both
+nullable and stay unset in this layer — only the future worker probes and
+writes them, once it has the actual media in hand.
 
 ### AnalysisJob
 
@@ -173,7 +188,8 @@ rewriting the processing model.
    and returns signed multipart upload instructions.
 5. The browser uploads video chunks directly to object storage.
 6. The browser finalizes the upload with the API.
-7. The API probes or records video metadata and enqueues analysis.
+7. The API records upload metadata and enqueues analysis; the worker probes the
+   authoritative media metadata before analysis begins.
 8. The progress page subscribes to job state using SSE or WebSocket.
 9. The worker downloads the video to temporary disk, runs the existing engine,
    uploads `full_report.json`, expands rallies into Postgres, and marks the job
@@ -202,10 +218,11 @@ Keep `engine/` as the reusable core analysis package. The SaaS worker should
 reuse the same analysis behavior as the desktop app, including report schema and
 JSON progress concepts.
 
-Treat `web/app.py` as a legacy local prototype. It demonstrates an early browser
-workflow, but it should not become the SaaS backend because it mixes file
-selection, synchronous analysis, video serving, export, and UI assumptions in
-one Flask process.
+The legacy `web/app.py` local prototype has been removed. It demonstrated an
+early browser workflow, but it did not become the SaaS backend because it
+mixed file selection, synchronous analysis, video serving, export, and UI
+assumptions in one Flask process. The SaaS backend lives in `web/backend`
+instead, built from a clean slate as a modular FastAPI monolith.
 
 Borrow these desktop concepts for the web UI and model:
 
@@ -230,8 +247,21 @@ Avoid coupling the SaaS design to desktop-only concepts:
 ### Uploads
 
 Uploads must support chunk retry and explicit finalization. Abandoned upload
-sessions should be cleaned up by a scheduled task. The API rejects projects that
-exceed quota, size, duration, or supported format rules.
+sessions should be cleaned up by a scheduled task. The API rejects projects
+that exceed quota, declared size, declared duration, or supported format
+rules at upload time. Upload initiation requires a client-declared duration,
+rejects it outright if it exceeds `MAX_VIDEO_DURATION_SECONDS`, and
+provisionally reserves that many seconds against the caller's monthly
+analysis-seconds quota — real usage cannot be known before analysis runs, so
+the declaration is the best available basis for enforcing the limit early
+and preventing quota exhaustion by many oversized uploads in flight at once.
+This reservation is released if finalize's own integrity checks fail (the
+asset will never be analyzed). The authoritative check still belongs to the
+worker: its first step (ffprobe) validates the real duration against the
+cap and, on rejection, marks the analysis job failed and releases/reconciles
+the reservation to actual usage. The API never probes media itself and never
+treats the client declaration as ground truth for anything other than the
+initial cap check and quota reservation.
 
 ### Jobs
 
@@ -293,6 +323,61 @@ requests. Contract tests should prevent the desktop bridge, SaaS worker, and web
 frontend from drifting apart.
 
 ## Open Implementation Notes
+
+### Layer 1 status
+
+Layer 1 delivered the backend foundation described in this document: the
+`web/backend` FastAPI modular monolith, the full data model (users, refresh
+sessions, one-time email tokens, projects, video assets, analysis jobs,
+rallies, rally edits, export jobs, quota ledger) with a matching Alembic
+migration chain, Argon2/JWT/rotating-refresh-token auth with email verification and
+password reset, owner-authorized project CRUD, quota-enforced S3-compatible
+multipart uploads with idempotent finalization, read-only admin APIs, health
+checks, and local Docker Compose infrastructure (Postgres, Redis, MinIO,
+Mailpit). It deliberately does not implement Celery task execution, SSE or
+WebSocket progress streaming, preview generation, analysis or export
+execution, a retention scheduler, or the web frontend UI — those remain
+scoped to later layers against the state machines and contracts this layer
+established. It enforces the declared-duration cap during upload initiation,
+but leaves authoritative enforcement to the worker:
+`VideoAsset.duration_seconds` and `duration_status` are nullable and stay unset
+until a future worker probes the finalized asset and compares it
+against the env-configurable `MAX_VIDEO_DURATION_SECONDS` (default 10800,
+i.e. 3 hours), rejecting over-limit assets before analysis.
+
+Upload initiation validates and reserves against a client-declared duration
+(`VideoAsset.declared_duration_seconds`, required, distinct from the
+nullable authoritative pair above): requests exceeding
+`MAX_VIDEO_DURATION_SECONDS` are rejected outright, and accepted requests
+provisionally reserve that many seconds of monthly analysis quota via a
+`QuotaLedgerEntry` of type `ANALYSIS_RESERVED`. This is a three-step ledger
+contract that only the first step is implemented in Layer 1:
+
+1. **Reserve** (implemented): initiate writes `ANALYSIS_RESERVED` for the
+   declared duration, so concurrent uploads cannot collectively exceed the
+   monthly budget before any of them are actually analyzed.
+2. **Release** (implemented for finalize-time integrity failures only): if
+   finalize's own checks fail (size mismatch, oversized actual object), the
+   asset will never be analyzed, so the API writes
+   `ANALYSIS_RESERVATION_RELEASED` to free the reservation immediately.
+   Reservations for uploads that are never finalized are not released in
+   Layer 1 — like other abandoned-upload cleanup, that is the scheduled
+   task's responsibility (not implemented).
+3. **Reconcile** (not implemented, contract only): the future worker's
+   first step is `ffprobe`. If the authoritative duration exceeds the cap,
+   the worker must mark the analysis job failed and write
+   `ANALYSIS_RESERVATION_RELEASED` for the declared amount. Otherwise, once
+   analysis completes, the worker reconciles the reservation to actual
+   usage via `ANALYSIS_COMPLETED` (present in the enum from Layer 1, reused
+   rather than redefined for this purpose).
+
+`monthly_analysis_seconds_used` (`/quota/me` and enforcement) is computed as
+the signed sum of `ANALYSIS_RESERVED`, `ANALYSIS_RESERVATION_RELEASED`, and
+`ANALYSIS_COMPLETED` deltas within the calendar month, i.e. it reflects
+"reserved-or-used" seconds. A reservation and its release straddling a
+calendar month boundary can show as negative usage in the release month;
+this is an accepted Layer 1 simplification rather than an engineered
+cross-month reconciliation.
 
 The design intentionally leaves vendor-specific deployment details to the
 implementation plan. The storage, queue, and container boundaries should allow a

@@ -1,0 +1,71 @@
+# Breakpoint Web Frontend (Contract Placeholder)
+
+There is no frontend implementation in this repository yet. This directory
+exists only to record the API contract the future web frontend (see
+`docs/designs/web-saas-design.md`) will depend on, so backend changes do not
+silently drift away from it.
+
+## Backend base URL
+
+The frontend talks to the FastAPI service in `web/backend`. In local
+development that service listens on `http://localhost:8000`.
+
+## Auth contract
+
+- `POST /api/v1/auth/register` — create an account and trigger a verification
+  email. Existing verified accounts return a conflict; an unverified account
+  can retry to receive a fresh verification token.
+- `POST /api/v1/auth/verify-email` — consume a one-time verification token.
+- `POST /api/v1/auth/login` — email + password. Returns a short-lived JWT
+  access token in the JSON body and sets an HttpOnly, `SameSite=Lax` refresh
+  token cookie. Only verified, active users can log in.
+- `POST /api/v1/auth/refresh` — reads the refresh cookie, atomically rotates
+  it (revokes the old session, issues a new one), returns a new access token.
+- `POST /api/v1/auth/logout` — revokes the current refresh session and clears
+  the cookie.
+- `POST /api/v1/auth/forgot-password` — always returns a generic response
+  regardless of whether the email exists.
+- `POST /api/v1/auth/reset-password` — consumes a one-time reset token, sets a
+  new password, and revokes all of the user's refresh sessions.
+
+The access token must be sent as `Authorization: Bearer <token>` on all
+authenticated requests. The frontend never reads or stores the refresh token
+directly — the browser cookie jar handles it.
+
+## Project / upload contract
+
+- `POST /api/v1/projects`, `GET /api/v1/projects`, `GET /api/v1/projects/{id}`,
+  `PATCH /api/v1/projects/{id}`, `DELETE /api/v1/projects/{id}` — project CRUD,
+  owner-scoped.
+- `POST /api/v1/projects/{id}/uploads` — start a multipart upload session
+  (requires a declared duration, validates MIME type/size/duration and quota,
+  reserves declared analysis seconds, and returns presigned part URLs).
+- `POST /api/v1/projects/{id}/uploads/{video_asset_id}/finalize` — complete
+  the multipart upload with an idempotency key; safe to retry.
+- `GET /api/v1/projects/{id}/video/signed-url` — short-lived signed GET URL
+  for playback.
+
+## Quota contract
+
+- `GET /api/v1/quota/me` — current usage (analysis seconds this month, active
+  job count) and effective limits (including any per-user override).
+
+## Admin contract (read-only)
+
+- `GET /api/v1/admin/users`
+- `GET /api/v1/admin/projects`
+- `GET /api/v1/admin/analysis-jobs`
+- `GET /api/v1/admin/export-jobs`
+- `GET /api/v1/admin/failures`
+
+None of the admin endpoints support mutation, retry, or cancellation in this
+layer.
+
+## Rally / report shape
+
+Rallies mirror the desktop report convention: `source_index`, `start`, `end`,
+`score`, `features`, `players`, `report_version`. Rally edits mirror the
+desktop edit convention: `included`, `adjusted_start`, `adjusted_end`.
+
+This file should be kept in sync with `web/backend/app/routers` whenever the
+contract changes, until a real frontend implementation replaces it.

@@ -64,7 +64,8 @@ desktop/         Electron + React desktop application
 └── scripts/     Build and packaging scripts
 
 tools/           Development utilities (comparison, parameter sweep, tests)
-web/             Legacy Flask web UI
+web/             Web SaaS: FastAPI backend (web/backend) and frontend contract
+                 placeholder (web/frontend); see docs/designs/web-saas-design.md
 ```
 
 Vision-enabled reports include a `players` object for each rally. `player_1` and

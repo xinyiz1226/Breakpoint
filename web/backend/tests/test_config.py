@@ -1,0 +1,24 @@
+"""Focused coverage for env-configurable upload/duration settings."""
+
+from __future__ import annotations
+
+import pytest
+
+from app.config import Settings
+
+
+def test_defaults_match_documented_layer_1_caps() -> None:
+    settings = Settings(_env_file=None)  # ignore any local .env during this check
+
+    assert settings.max_upload_size_bytes == 20 * 1024 * 1024 * 1024  # 20 GiB
+    assert settings.max_video_duration_seconds == 3 * 60 * 60  # 10800s / 3 hours
+
+
+def test_upload_and_duration_caps_are_env_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BREAKPOINT_MAX_UPLOAD_SIZE_BYTES", str(5 * 1024 * 1024 * 1024))
+    monkeypatch.setenv("BREAKPOINT_MAX_VIDEO_DURATION_SECONDS", "7200")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.max_upload_size_bytes == 5 * 1024 * 1024 * 1024
+    assert settings.max_video_duration_seconds == 7200
