@@ -30,8 +30,10 @@ def release_analysis_reservation(db: Session, video_asset: VideoAsset) -> None:
         event_type=QuotaLedgerEventType.ANALYSIS_RESERVATION_RELEASED,
         video_asset_id=video_asset.id,
         seconds_delta=-reserved,
+        accounting_month=video_asset.analysis_reservation_month,
     )
     video_asset.analysis_reserved_seconds = 0.0
+    video_asset.analysis_reservation_month = None
 
 
 def release_storage_reservation(db: Session, video_asset: VideoAsset) -> None:
@@ -46,8 +48,10 @@ def release_storage_reservation(db: Session, video_asset: VideoAsset) -> None:
         event_type=QuotaLedgerEventType.STORAGE_RESERVATION_RELEASED,
         video_asset_id=video_asset.id,
         bytes_delta=-reserved,
+        accounting_month=video_asset.storage_reservation_month,
     )
     video_asset.storage_reserved_bytes = 0
+    video_asset.storage_reservation_month = None
 
 
 def release_counted_storage_bytes(db: Session, video_asset: VideoAsset) -> None:

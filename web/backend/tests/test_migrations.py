@@ -15,9 +15,10 @@ and that the new unique index is actually enforced afterward.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,17 @@ def _run_alembic(db_path: Path, revision: str) -> None:
         else:
             os.environ["BREAKPOINT_DATABASE_URL"] = old_url
         get_settings.cache_clear()
+
+
+def test_0008_postgres_month_backfill_is_explicitly_utc():
+    migration_path = ALEMBIC_DIR / "versions" / "0008_quota_accounting_periods.py"
+    spec = importlib.util.spec_from_file_location("migration_0008", migration_path)
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    expression = migration._month_start_expression("created_at", "postgresql")
+    assert expression == "date_trunc('month', created_at AT TIME ZONE 'UTC')::date"
 
 
 @pytest.fixture
@@ -286,5 +298,249 @@ def test_0007_backfill_assigns_distinct_generations_to_historical_duplicates(scr
                     "generation": 2,
                 },
             )
+    finally:
+        engine.dispose()
+
+
+def test_0008_backfill_derives_accounting_month_from_created_at(scratch_db_path):
+    """Seed quota_ledger_entries at revision 0007 with created_at values in
+    different UTC calendar months (including a leap-day month and a
+    year-boundary rollover), upgrade to 0008, and assert accounting_month
+    is backfilled to each row's own created_at truncated to the first day
+    of its UTC month -- never today's wall-clock month, and never another
+    row's month."""
+    _run_alembic(scratch_db_path, "0007")
+
+    user_id = uuid.uuid4()
+    entry_specs = [
+        (uuid.uuid4(), datetime(2025, 1, 15, 3, 30, tzinfo=timezone.utc), date(2025, 1, 1)),
+        (uuid.uuid4(), datetime(2025, 2, 1, 0, 0, tzinfo=timezone.utc), date(2025, 2, 1)),
+        (uuid.uuid4(), datetime(2025, 12, 31, 23, 59, tzinfo=timezone.utc), date(2025, 12, 1)),
+        (uuid.uuid4(), datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc), date(2026, 1, 1)),
+    ]
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO users (
+                        id, created_at, updated_at, email, password_hash, role,
+                        is_active, is_verified, quota_monthly_analysis_seconds_override,
+                        quota_max_active_analysis_jobs_override, quota_storage_bytes_override
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :email, :password_hash, :role,
+                        :is_active, :is_verified, NULL, NULL, NULL
+                    )
+                    """
+                ),
+                {
+                    "id": str(user_id),
+                    "created_at": datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    "updated_at": datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    "email": "accounting-month-migration@example.com",
+                    "password_hash": "not-a-real-hash",
+                    "role": "USER",
+                    "is_active": True,
+                    "is_verified": True,
+                },
+            )
+            for entry_id, created_at, _expected_month in entry_specs:
+                conn.execute(
+                    sa.text(
+                        """
+                        INSERT INTO quota_ledger_entries (
+                            id, user_id, event_type, analysis_job_id, video_asset_id,
+                            seconds_delta, bytes_delta, created_at
+                        ) VALUES (
+                            :id, :user_id, :event_type, NULL, NULL,
+                            :seconds_delta, NULL, :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": str(entry_id),
+                        "user_id": str(user_id),
+                        "event_type": "ANALYSIS_RESERVED",
+                        "seconds_delta": 10.0,
+                        "created_at": created_at,
+                    },
+                )
+    finally:
+        engine.dispose()
+
+    _run_alembic(scratch_db_path, "0008")
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.connect() as conn:
+            for entry_id, _created_at, expected_month in entry_specs:
+                accounting_month = conn.execute(
+                    sa.text("SELECT accounting_month FROM quota_ledger_entries WHERE id = :id"),
+                    {"id": str(entry_id)},
+                ).scalar_one()
+                assert accounting_month == expected_month.isoformat(), (
+                    f"entry {entry_id} expected {expected_month}, got {accounting_month}"
+                )
+
+            # The column must be non-null after backfill.
+            null_count = conn.execute(
+                sa.text("SELECT COUNT(*) FROM quota_ledger_entries WHERE accounting_month IS NULL")
+            ).scalar_one()
+            assert null_count == 0
+
+            index_names = {
+                row[1]
+                for row in conn.execute(sa.text("PRAGMA index_list('quota_ledger_entries')")).fetchall()
+            }
+            assert "ix_quota_ledger_entries_user_id_accounting_month" in index_names
+    finally:
+        engine.dispose()
+
+
+def test_0008_backfills_live_reservation_months_from_original_ledger_entries(scratch_db_path):
+    """Live reservations created before 0008 retain their original periods.
+
+    Without this asset-level backfill, releasing or resizing a January
+    reservation after deployment in a later month would fall back to that
+    later month and create a negative current-month balance.
+    """
+    _run_alembic(scratch_db_path, "0007")
+
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    january_created_at = datetime(2025, 1, 15, 3, 30, tzinfo=timezone.utc)
+    february_created_at = datetime(2025, 2, 20, 4, 45, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO users (
+                        id, created_at, updated_at, email, password_hash, role,
+                        is_active, is_verified, quota_monthly_analysis_seconds_override,
+                        quota_max_active_analysis_jobs_override, quota_storage_bytes_override
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :email, :password_hash, :role,
+                        :is_active, :is_verified, NULL, NULL, NULL
+                    )
+                    """
+                ),
+                {
+                    "id": str(user_id),
+                    "created_at": january_created_at,
+                    "updated_at": january_created_at,
+                    "email": "live-reservation-migration@example.com",
+                    "password_hash": "not-a-real-hash",
+                    "role": "USER",
+                    "is_active": True,
+                    "is_verified": True,
+                },
+            )
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO projects (id, created_at, updated_at, owner_id, name, deleted_at)
+                    VALUES (:id, :created_at, :updated_at, :owner_id, :name, NULL)
+                    """
+                ),
+                {
+                    "id": str(project_id),
+                    "created_at": january_created_at,
+                    "updated_at": january_created_at,
+                    "owner_id": str(user_id),
+                    "name": "Live Reservation Migration",
+                },
+            )
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO video_assets (
+                        id, created_at, updated_at, project_id, owner_id, object_key,
+                        original_filename, content_type, declared_size_bytes,
+                        actual_size_bytes, declared_duration_seconds, duration_seconds,
+                        duration_status, retention_expires_at, status, upload_id,
+                        part_count, upload_expires_at, finalize_idempotency_key,
+                        finalize_request_fingerprint, analysis_reserved_seconds,
+                        storage_reserved_bytes, storage_counted_bytes, cleanup_generation
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :project_id, :owner_id, :object_key,
+                        :original_filename, :content_type, :declared_size_bytes,
+                        NULL, :declared_duration_seconds, NULL,
+                        NULL, NULL, :status, :upload_id,
+                        :part_count, NULL, NULL,
+                        NULL, :analysis_reserved_seconds,
+                        :storage_reserved_bytes, 0, 0
+                    )
+                    """
+                ),
+                {
+                    "id": str(asset_id),
+                    "created_at": january_created_at,
+                    "updated_at": february_created_at,
+                    "project_id": str(project_id),
+                    "owner_id": str(user_id),
+                    "object_key": "videos/live-reservation.mp4",
+                    "original_filename": "clip.mp4",
+                    "content_type": "video/mp4",
+                    "declared_size_bytes": 1024,
+                    "declared_duration_seconds": 100.0,
+                    "status": "UPLOAD_INITIATED",
+                    "upload_id": "live-upload-id",
+                    "part_count": 1,
+                    "analysis_reserved_seconds": 100.0,
+                    "storage_reserved_bytes": 1024,
+                },
+            )
+            for event_type, seconds_delta, bytes_delta, created_at in (
+                ("ANALYSIS_RESERVED", 100.0, None, january_created_at),
+                ("STORAGE_RESERVED", None, 1024, february_created_at),
+            ):
+                conn.execute(
+                    sa.text(
+                        """
+                        INSERT INTO quota_ledger_entries (
+                            id, user_id, event_type, analysis_job_id, video_asset_id,
+                            seconds_delta, bytes_delta, created_at
+                        ) VALUES (
+                            :id, :user_id, :event_type, NULL, :video_asset_id,
+                            :seconds_delta, :bytes_delta, :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "user_id": str(user_id),
+                        "event_type": event_type,
+                        "video_asset_id": str(asset_id),
+                        "seconds_delta": seconds_delta,
+                        "bytes_delta": bytes_delta,
+                        "created_at": created_at,
+                    },
+                )
+    finally:
+        engine.dispose()
+
+    _run_alembic(scratch_db_path, "0008")
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    SELECT analysis_reservation_month, storage_reservation_month
+                    FROM video_assets
+                    WHERE id = :id
+                    """
+                ),
+                {"id": str(asset_id)},
+            ).one()
+            assert row.analysis_reservation_month == "2025-01-01"
+            assert row.storage_reservation_month == "2025-02-01"
     finally:
         engine.dispose()

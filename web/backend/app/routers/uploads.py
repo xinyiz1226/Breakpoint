@@ -52,6 +52,7 @@ from app.models.enums import (
 )
 from app.models.job import AnalysisJob
 from app.models.project import Project
+from app.models.quota import current_accounting_month
 from app.models.user import User
 from app.models.video import VideoAsset
 from app.schemas.job import AnalysisJobRead
@@ -328,15 +329,22 @@ def initiate_upload(
     # Provisionally reserve monthly analysis-seconds and storage-bytes quota
     # against the client-declared duration/size. See QuotaLedgerEventType
     # for the full reservation/release/reconcile contract the finalize path
-    # and the future worker must follow.
+    # and the future worker must follow. Both reservations are stamped with
+    # the current accounting month so a later release or worker resize
+    # (which may happen after a calendar rollover) still targets the month
+    # this reservation actually belongs to.
+    reservation_month = current_accounting_month()
     video_asset.analysis_reserved_seconds = payload.duration_seconds
+    video_asset.analysis_reservation_month = reservation_month
     video_asset.storage_reserved_bytes = payload.size_bytes
+    video_asset.storage_reservation_month = reservation_month
     quota_service.record_ledger_event(
         db,
         user_id=current_user.id,
         event_type=QuotaLedgerEventType.ANALYSIS_RESERVED,
         video_asset_id=video_asset.id,
         seconds_delta=payload.duration_seconds,
+        accounting_month=reservation_month,
     )
     quota_service.record_ledger_event(
         db,
@@ -344,6 +352,7 @@ def initiate_upload(
         event_type=QuotaLedgerEventType.STORAGE_RESERVED,
         video_asset_id=video_asset.id,
         bytes_delta=payload.size_bytes,
+        accounting_month=reservation_month,
     )
 
     # Schedule a durable ABORT_MULTIPART cleanup task for this upload's

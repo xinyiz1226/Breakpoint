@@ -8,6 +8,7 @@ docker-compose, ``SmtpEmailSender`` talks to Mailpit.
 from __future__ import annotations
 
 import smtplib
+import ssl
 from email.message import EmailMessage
 from typing import Protocol
 
@@ -31,7 +32,11 @@ class SmtpEmailSender:
 
         with smtplib.SMTP(self._settings.smtp_host, self._settings.smtp_port, timeout=10) as client:
             if self._settings.smtp_use_tls:
-                client.starttls()
+                # An explicit default context verifies the server's
+                # hostname and certificate chain; starttls() with no
+                # context does not, which would silently accept a MITM'd
+                # connection.
+                client.starttls(context=ssl.create_default_context())
             if self._settings.smtp_username and self._settings.smtp_password:
                 client.login(self._settings.smtp_username, self._settings.smtp_password)
             client.send_message(message)

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Date, DateTime, Enum, Float, ForeignKey, Integer, String
 from sqlalchemy import Uuid as UuidType
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -107,6 +107,17 @@ class VideoAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     analysis_reserved_seconds: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     storage_reserved_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     storage_counted_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+
+    # Which accounting month (first UTC day) each *live* reservation above
+    # belongs to. Set when a reservation is created/resized, cleared to
+    # NULL when it is released. Release/resize always target this original
+    # period -- not whatever wall-clock month the release/resize happens to
+    # run in -- so a reservation made in one calendar month and released
+    # (or grown/shrunk by the worker) after rollover to the next month
+    # never nets against, or is judged by, the wrong month's usage. See
+    # app.services.quota/app.services.reservations.
+    analysis_reservation_month: Mapped[date | None] = mapped_column(Date, nullable=True)
+    storage_reservation_month: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Monotonic source for StorageCleanupTask.generation. Callers that
     # create/reuse a cleanup task for this asset via

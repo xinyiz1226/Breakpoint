@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.models.enums import JobStatus, QuotaLedgerEventType, VideoDurationStatus
 from app.models.job import AnalysisJob
+from app.models.quota import current_accounting_month
 from app.models.user import User
 from app.models.video import VideoAsset
 from app.services import quota as quota_service
@@ -91,6 +92,15 @@ def apply_authoritative_duration(
 
     video_asset.duration_seconds = authoritative_duration_seconds
 
+    # Capture the reservation's original accounting period *before* release
+    # clears it: every quota check and ledger write below for this resize
+    # must target the month the reservation actually belongs to, never the
+    # wall-clock month the worker happens to run in. Existing reservations
+    # made without an explicit month (pre-rollover-fix rows, or tests that
+    # don't set one) fall back to the current month, preserving prior
+    # implicit-current-month behavior exactly.
+    original_month = video_asset.analysis_reservation_month or current_accounting_month()
+
     if authoritative_duration_seconds > settings.max_video_duration_seconds:
         video_asset.duration_status = VideoDurationStatus.EXCEEDED
         release_analysis_reservation(db, video_asset)
@@ -104,8 +114,11 @@ def apply_authoritative_duration(
 
     # Quota excluding this asset's own current reservation: it is about to
     # be released and replaced below, so it must not count against itself.
+    # Scoped to the reservation's original month so an unrelated reservation
+    # in a different month (before or after rollover) never affects this
+    # decision.
     used_excluding_self = (
-        quota_service.monthly_analysis_seconds_used(db, user.id)
+        quota_service.monthly_analysis_seconds_used(db, user.id, accounting_month=original_month)
         - video_asset.analysis_reserved_seconds
     )
     limit = quota_service.monthly_analysis_seconds_limit(user, settings)
@@ -120,7 +133,9 @@ def apply_authoritative_duration(
 
     # Allowed: resize the reservation to the authoritative amount (release
     # the old provisional booking, reserve the real one) and leave the job
-    # queued/ready for analysis.
+    # queued/ready for analysis. Both legs of the resize -- the release
+    # above and the re-reservation below -- target the same original month,
+    # so the reservation's period survives the resize unchanged.
     release_analysis_reservation(db, video_asset)
     quota_service.record_ledger_event(
         db,
@@ -128,8 +143,10 @@ def apply_authoritative_duration(
         event_type=QuotaLedgerEventType.ANALYSIS_RESERVED,
         video_asset_id=video_asset.id,
         seconds_delta=authoritative_duration_seconds,
+        accounting_month=original_month,
     )
     video_asset.analysis_reserved_seconds = authoritative_duration_seconds
+    video_asset.analysis_reservation_month = original_month
     video_asset.duration_status = VideoDurationStatus.WITHIN_LIMIT
 
     db.commit()

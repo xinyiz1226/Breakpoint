@@ -11,6 +11,7 @@ since there is no worker layer/router in this codebase yet.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 import pytest
 from sqlalchemy import select
@@ -40,7 +41,7 @@ SETTINGS = Settings(
 
 
 def _create_asset_with_job(
-    db: Session, *, declared_duration: float, owner=None
+    db: Session, *, declared_duration: float, owner=None, reservation_month: date | None = None
 ) -> tuple[VideoAsset, AnalysisJob]:
     if owner is None:
         owner = create_user(
@@ -61,6 +62,7 @@ def _create_asset_with_job(
         upload_id="upload-1",
         part_count=1,
         analysis_reserved_seconds=declared_duration,
+        analysis_reservation_month=reservation_month,
     )
     db.add(video_asset)
     db.flush()
@@ -70,6 +72,7 @@ def _create_asset_with_job(
         event_type=QuotaLedgerEventType.ANALYSIS_RESERVED,
         video_asset_id=video_asset.id,
         seconds_delta=declared_duration,
+        accounting_month=reservation_month,
     )
     job = AnalysisJob(
         project_id=project.id,
@@ -298,3 +301,117 @@ def test_replay_after_concurrent_reconciliation_observes_fresh_state(
     finally:
         session_a.close()
         session_b.close()
+
+
+# --- Cross-month accounting: resize must target the reservation's ---------
+# --- original period, never the wall-clock month the resize happens in ----
+
+JANUARY = date(2026, 1, 1)
+FEBRUARY = date(2026, 2, 1)
+
+
+def test_grow_across_month_rollover_keeps_original_reservation_month(db_session: Session) -> None:
+    """The provisional reservation was made in January. The worker
+    reconciles it (grows it) "in February" -- but nothing here ever reads
+    wall-clock time, so this is exercised purely via the January
+    accounting_month baked into the asset/ledger rows, matching the
+    no-monkeypatch-fragility requirement."""
+    video_asset, job = _create_asset_with_job(
+        db_session, declared_duration=100.0, reservation_month=JANUARY
+    )
+
+    result = apply_authoritative_duration(
+        db_session,
+        video_asset_id=video_asset.id,
+        analysis_job_id=job.id,
+        authoritative_duration_seconds=150.0,
+        settings=SETTINGS,
+    )
+
+    assert result.status == JobStatus.QUEUED
+    db_session.refresh(video_asset)
+    assert video_asset.analysis_reserved_seconds == 150.0
+    # The reservation's period is preserved across the resize, not reset to
+    # "whenever the resize happened".
+    assert video_asset.analysis_reservation_month == JANUARY
+
+    assert (
+        quota_service.monthly_analysis_seconds_used(db_session, video_asset.owner_id, accounting_month=JANUARY)
+        == 150.0
+    )
+    assert (
+        quota_service.monthly_analysis_seconds_used(db_session, video_asset.owner_id, accounting_month=FEBRUARY)
+        == 0.0
+    )
+
+
+def test_shrink_across_month_rollover_keeps_original_reservation_month(db_session: Session) -> None:
+    video_asset, job = _create_asset_with_job(
+        db_session, declared_duration=200.0, reservation_month=JANUARY
+    )
+
+    apply_authoritative_duration(
+        db_session,
+        video_asset_id=video_asset.id,
+        analysis_job_id=job.id,
+        authoritative_duration_seconds=80.0,
+        settings=SETTINGS,
+    )
+
+    db_session.refresh(video_asset)
+    assert video_asset.analysis_reserved_seconds == 80.0
+    assert video_asset.analysis_reservation_month == JANUARY
+    assert (
+        quota_service.monthly_analysis_seconds_used(db_session, video_asset.owner_id, accounting_month=JANUARY)
+        == 80.0
+    )
+    assert (
+        quota_service.monthly_analysis_seconds_used(db_session, video_asset.owner_id, accounting_month=FEBRUARY)
+        == 0.0
+    )
+
+
+def test_resize_quota_check_is_scoped_to_the_original_reservation_month(
+    db_session: Session,
+) -> None:
+    """A resize must be judged against the usage/limit of the reservation's
+    *original* month, not whatever month the resize itself runs in. A
+    February reservation for the same user must not affect a January
+    resize's quota decision, and vice versa."""
+    owner = create_user(db_session, email="cross-month-quota@example.com", password="test-password-123")
+
+    # Consume almost all of January's budget with an unrelated reservation.
+    _create_asset_with_job(
+        db_session, declared_duration=3500.0, owner=owner, reservation_month=JANUARY
+    )
+    # A separate, healthy February reservation must not count against the
+    # January resize below.
+    _create_asset_with_job(
+        db_session, declared_duration=3500.0, owner=owner, reservation_month=FEBRUARY
+    )
+
+    video_asset, job = _create_asset_with_job(
+        db_session, declared_duration=50.0, owner=owner, reservation_month=JANUARY
+    )
+
+    result = apply_authoritative_duration(
+        db_session,
+        video_asset_id=video_asset.id,
+        analysis_job_id=job.id,
+        authoritative_duration_seconds=200.0,  # within per-video cap, but 3500 + 200 > 3600 (Jan)
+        settings=SETTINGS,
+    )
+
+    assert result.status == JobStatus.FAILED
+    db_session.refresh(video_asset)
+    assert video_asset.analysis_reserved_seconds == 0.0
+    # Only the unrelated January 3500s reservation remains booked in January.
+    assert (
+        quota_service.monthly_analysis_seconds_used(db_session, owner.id, accounting_month=JANUARY)
+        == 3500.0
+    )
+    # February's reservation is untouched by the January resize/failure.
+    assert (
+        quota_service.monthly_analysis_seconds_used(db_session, owner.id, accounting_month=FEBRUARY)
+        == 3500.0
+    )
