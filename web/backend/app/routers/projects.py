@@ -170,15 +170,16 @@ def delete_project(
 
     video_asset = project.video_asset
     if video_asset is not None:
-        # Release any outstanding analysis/storage reservation
-        # idempotently -- these helpers are no-ops if already released, so
-        # this is safe even for an asset already cleanup_pending/aborted.
-        # Counted (post-finalize actual) storage bytes are deliberately
-        # NOT released here: they must stay charged until the queued
-        # DELETE_OBJECT cleanup task actually succeeds, so a still-failing
-        # delete doesn't stop being counted against quota.
+        # Release the outstanding analysis reservation idempotently right
+        # away -- it is a no-op if already released. The storage
+        # reservation for an unfinished multipart upload is deliberately
+        # NOT released here: it must stay charged until the queued
+        # ABORT_MULTIPART cleanup task actually succeeds (release happens
+        # in storage_cleanup's completion path), so a still-failing abort
+        # doesn't stop being counted against quota. Counted (post-finalize
+        # actual) storage bytes are likewise released only once the
+        # corresponding DELETE_OBJECT cleanup task succeeds.
         reservation_service.release_analysis_reservation(db, video_asset)
-        reservation_service.release_storage_reservation(db, video_asset)
 
         task: StorageCleanupTask | None = None
         if video_asset.status == VideoAssetStatus.UPLOAD_INITIATED and video_asset.upload_id:
@@ -193,6 +194,7 @@ def delete_project(
                 object_key=video_asset.object_key,
                 upload_id=video_asset.upload_id,
                 operation=StorageCleanupOperation.ABORT_MULTIPART,
+                generation=video_asset.cleanup_generation,
             )
         elif video_asset.status in (
             VideoAssetStatus.FINALIZING,
@@ -209,6 +211,7 @@ def delete_project(
                 object_key=video_asset.object_key,
                 upload_id=None,
                 operation=StorageCleanupOperation.DELETE_OBJECT,
+                generation=video_asset.cleanup_generation,
             )
         # UPLOAD_ABORTED already has no outstanding storage-side artifact to
         # clean up -- nothing further to queue.

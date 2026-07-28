@@ -70,11 +70,12 @@ def get_or_create_cleanup_task(
     object_key: str,
     upload_id: str | None,
     operation: StorageCleanupOperation,
+    generation: int = 0,
     not_before: datetime | None = None,
 ) -> StorageCleanupTask:
     """Idempotency helper: reuse an already-unfinished (pending/running/
-    failed) cleanup task for the same video asset + operation instead of
-    enqueuing a duplicate.
+    failed) cleanup task for the same video asset + operation + generation
+    instead of enqueuing a duplicate.
 
     A new task is only created if no such unfinished task currently
     exists -- including the case where an earlier task for this asset
@@ -83,6 +84,14 @@ def get_or_create_cleanup_task(
     object now needs its own cleanup. Callers that persist a task via this
     helper must still ``db.commit()`` before attempting the corresponding
     storage side effect, same as constructing one directly.
+
+    ``generation`` scopes the reuse search alongside ``video_asset_id`` and
+    ``operation``: it is normally the asset's current
+    ``cleanup_generation`` (unchanged), so ordinary retries keep reusing
+    the same task. A caller that has just incremented the asset's
+    generation (because an earlier same-generation task might still be
+    ``RUNNING`` against a now-stale view of the object) is guaranteed a
+    genuinely new task row rather than a reuse of that earlier one.
 
     ``not_before`` is only applied when creating a brand-new task (e.g. a
     scheduled multipart-expiry abort); reusing an existing unfinished task
@@ -94,6 +103,7 @@ def get_or_create_cleanup_task(
             .where(
                 StorageCleanupTask.video_asset_id == video_asset_id,
                 StorageCleanupTask.operation == operation,
+                StorageCleanupTask.generation == generation,
                 StorageCleanupTask.status.in_(
                     (
                         StorageCleanupStatus.PENDING,
@@ -114,6 +124,7 @@ def get_or_create_cleanup_task(
         upload_id=upload_id,
         operation=operation,
         status=StorageCleanupStatus.PENDING,
+        generation=generation,
         not_before=not_before,
     )
     db.add(task)

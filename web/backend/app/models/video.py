@@ -108,6 +108,17 @@ class VideoAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     storage_reserved_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     storage_counted_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
+    # Monotonic source for StorageCleanupTask.generation. Callers that
+    # create/reuse a cleanup task for this asset via
+    # get_or_create_cleanup_task normally pass this value unchanged, so
+    # retries reuse the same task. A caller that discovers a storage-side
+    # artifact may be newer than any prior cleanup attempt (finalize
+    # detecting a concurrent tombstone after its own S3 completion)
+    # increments this under lock first, forcing a genuinely new successor
+    # task rather than reusing one that may already be RUNNING/COMPLETED
+    # against a now-stale view of the object.
+    cleanup_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     project: Mapped["Project"] = relationship(back_populates="video_asset")
     analysis_jobs: Mapped[list["AnalysisJob"]] = relationship(
         back_populates="video_asset", cascade="all, delete-orphan"

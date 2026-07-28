@@ -78,7 +78,8 @@ class FakeObjectStorage:
     ``abort_multipart_upload`` calls, to exercise durable
     failed/pending-retry cleanup-task handling.
 
-    ``on_delete_object``/``on_abort_multipart_upload`` are optional
+    ``on_delete_object``/``on_abort_multipart_upload``/
+    ``on_complete_multipart_upload`` are optional
     one-shot callbacks (cleared immediately before firing, so they never
     recurse) invoked right before the corresponding operation actually
     runs. They let a test deterministically interleave a second,
@@ -97,6 +98,7 @@ class FakeObjectStorage:
         self.fail_next_aborts: int = 0
         self.on_delete_object: Callable[[], None] | None = None
         self.on_abort_multipart_upload: Callable[[], None] | None = None
+        self.on_complete_multipart_upload: Callable[[], None] | None = None
 
     def generate_object_key(self, *, project_id: uuid.UUID, filename: str) -> str:
         suffix = PurePosixPath(filename).suffix.lower()
@@ -116,6 +118,9 @@ class FakeObjectStorage:
         ]
 
     def complete_multipart_upload(self, *, object_key: str, upload_id: str, parts) -> None:
+        hook, self.on_complete_multipart_upload = self.on_complete_multipart_upload, None
+        if hook is not None:
+            hook()
         upload = self.uploads.get(upload_id)
         if upload is None or upload.object_key != object_key or upload_id in self.completed_upload_ids:
             raise MultipartUploadNotFound(object_key=object_key, upload_id=upload_id)

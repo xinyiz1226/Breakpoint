@@ -12,25 +12,34 @@ development that service listens on `http://localhost:8000`.
 
 ## Auth contract
 
-- `POST /api/v1/auth/register` — create an account and trigger a verification
-  email. Existing verified accounts return a conflict; an unverified account
-  can retry to receive a fresh verification token.
-- `POST /api/v1/auth/verify-email` — consume a one-time verification token.
+- `POST /api/v1/auth/register` — create an account (email only; no password
+  is ever accepted or stored by this call) and trigger a verification email
+  containing a one-time token. Existing verified accounts return a conflict;
+  an unverified account can retry to receive a fresh verification token that
+  invalidates any earlier one. Until verified, the account has an
+  unguessable, server-generated placeholder password that cannot be used to
+  log in.
+- `POST /api/v1/auth/verify-email` — consume a one-time verification token
+  together with the chosen password (subject to the same constraints as
+  login). This is the only call that ever sets the account's real
+  `password_hash`: the mailbox owner who submits the token they received
+  controls the account's eventual password, not whoever called `register`.
 - `POST /api/v1/auth/login` — email + password. Returns a short-lived JWT
   access token in the JSON body and sets an HttpOnly, `SameSite=Lax` refresh
   token cookie. Only verified, active users can log in.
 - `POST /api/v1/auth/refresh` — reads the refresh cookie, atomically rotates
   it (revokes the old session, issues a new one), returns a new access token.
-- `POST /api/v1/auth/logout` — revokes the current refresh session and clears
-  the cookie.
+- `POST /api/v1/auth/logout` — revokes every active refresh session for the
+  account identified by the presented cookie (even a stale, already-rotated
+  one) and clears the cookie.
 - `POST /api/v1/auth/forgot-password` — always returns a generic response
   regardless of whether the email exists.
 - `POST /api/v1/auth/reset-password` — consumes a one-time reset token, sets a
   new password, and revokes all of the user's refresh sessions.
 
-The access token must be sent as `Authorization: Bearer <token>` on all
-authenticated requests. The frontend never reads or stores the refresh token
-directly — the browser cookie jar handles it.
+The access token must be sent in the Authorization request header using
+the bearer scheme on all authenticated requests. The frontend never reads or
+stores the refresh token directly — the browser cookie jar handles it.
 
 ## Project / upload contract
 

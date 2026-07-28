@@ -20,10 +20,41 @@ PASSWORD = "correct-horse-battery"
 
 
 def _register_and_get_verify_token(client: TestClient, fake_email_sender: FakeEmailSender) -> str:
-    response = client.post("/api/v1/auth/register", json={"email": EMAIL, "password": PASSWORD})
+    response = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert response.status_code == 201, response.text
     assert fake_email_sender.last_email.to_address == EMAIL
     return fake_email_sender.last_email.token
+
+
+def test_register_rejects_extra_password_field_and_creates_nothing(
+    client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
+) -> None:
+    # A legacy/attacker-supplied `password` alongside `email` must be
+    # rejected outright, not silently ignored -- registration never
+    # accepts, hashes, or binds a password (see VerifyEmailRequest, where
+    # the mailbox owner alone chooses the eventual credential).
+    response = client.post(
+        "/api/v1/auth/register", json={"email": EMAIL, "password": "attacker-chosen-pw"}
+    )
+    assert response.status_code == 422, response.text
+
+    assert fake_email_sender.sent_emails == []
+    assert db_session.execute(select(User).where(User.email == EMAIL)).scalar_one_or_none() is None
+    assert db_session.execute(select(EmailToken)).scalars().all() == []
+
+
+def test_register_email_only_still_succeeds(
+    client: TestClient, fake_email_sender: FakeEmailSender
+) -> None:
+    response = client.post("/api/v1/auth/register", json={"email": EMAIL})
+    assert response.status_code == 201, response.text
+
+
+def test_register_request_schema_forbids_additional_properties() -> None:
+    from app.main import app
+
+    schema = app.openapi()["components"]["schemas"]["RegisterRequest"]
+    assert schema.get("additionalProperties") is False
 
 
 def test_register_sends_verification_email_and_creates_unverified_user(
@@ -39,9 +70,9 @@ def test_register_duplicate_email_for_verified_account_is_rejected(
     client: TestClient, fake_email_sender: FakeEmailSender
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
 
-    response = client.post("/api/v1/auth/register", json={"email": EMAIL, "password": PASSWORD})
+    response = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert response.status_code == 409
 
 
@@ -50,17 +81,17 @@ def test_register_again_for_unverified_account_resends_a_fresh_verification_toke
 ) -> None:
     first_token = _register_and_get_verify_token(client, fake_email_sender)
 
-    response = client.post("/api/v1/auth/register", json={"email": EMAIL, "password": PASSWORD})
+    response = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert response.status_code == 201, response.text
     assert len(fake_email_sender.sent_emails) == 2
     second_token = fake_email_sender.last_email.token
     assert second_token != first_token
 
     # The stale token from the first attempt was invalidated by the retry.
-    stale_verify = client.post("/api/v1/auth/verify-email", json={"token": first_token})
+    stale_verify = client.post("/api/v1/auth/verify-email", json={"token": first_token, "password": PASSWORD})
     assert stale_verify.status_code == 400
 
-    fresh_verify = client.post("/api/v1/auth/verify-email", json={"token": second_token})
+    fresh_verify = client.post("/api/v1/auth/verify-email", json={"token": second_token, "password": PASSWORD})
     assert fresh_verify.status_code == 200
 
     # No duplicate account was created.
@@ -72,7 +103,7 @@ def test_register_recovers_after_smtp_failure_via_retry(
     client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
 ) -> None:
     fake_email_sender.fail_next_sends = 1
-    failed_response = client.post("/api/v1/auth/register", json={"email": EMAIL, "password": PASSWORD})
+    failed_response = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert failed_response.status_code == 503
 
     # The account exists (unverified) even though the email never sent, so
@@ -82,12 +113,12 @@ def test_register_recovers_after_smtp_failure_via_retry(
     assert users[0].is_verified is False
     assert fake_email_sender.sent_emails == []
 
-    retry_response = client.post("/api/v1/auth/register", json={"email": EMAIL, "password": PASSWORD})
+    retry_response = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert retry_response.status_code == 201, retry_response.text
     assert len(fake_email_sender.sent_emails) == 1
 
     token = fake_email_sender.last_email.token
-    verify_response = client.post("/api/v1/auth/verify-email", json={"token": token})
+    verify_response = client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     assert verify_response.status_code == 200
 
     users_after = db_session.execute(select(User).where(User.email == EMAIL)).scalars().all()
@@ -97,9 +128,13 @@ def test_register_recovers_after_smtp_failure_via_retry(
 def test_login_before_verification_is_rejected(
     client: TestClient, fake_email_sender: FakeEmailSender
 ) -> None:
+    """Before verification there is no submitted password to match at
+    all -- the account's real password_hash is an unguessable placeholder
+    -- so login fails on password mismatch (401), not just an is_verified
+    gate."""
     _register_and_get_verify_token(client, fake_email_sender)
     response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_verify_then_login_succeeds_and_sets_refresh_cookie(
@@ -107,7 +142,7 @@ def test_verify_then_login_succeeds_and_sets_refresh_cookie(
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
 
-    verify_response = client.post("/api/v1/auth/verify-email", json={"token": token})
+    verify_response = client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     assert verify_response.status_code == 200
 
     login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
@@ -119,7 +154,7 @@ def test_verify_then_login_succeeds_and_sets_refresh_cookie(
 
 
 def test_verify_email_rejects_invalid_token(client: TestClient) -> None:
-    response = client.post("/api/v1/auth/verify-email", json={"token": "not-a-real-token"})
+    response = client.post("/api/v1/auth/verify-email", json={"token": "not-a-real-token", "password": PASSWORD})
     assert response.status_code == 400
 
 
@@ -127,15 +162,15 @@ def test_verify_email_rejects_reused_token(
     client: TestClient, fake_email_sender: FakeEmailSender
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    first = client.post("/api/v1/auth/verify-email", json={"token": token})
+    first = client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     assert first.status_code == 200
-    second = client.post("/api/v1/auth/verify-email", json={"token": token})
+    second = client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     assert second.status_code == 400
 
 
 def test_login_rejects_wrong_password(client: TestClient, fake_email_sender: FakeEmailSender) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
 
     response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": "wrong-password"})
     assert response.status_code == 401
@@ -145,7 +180,7 @@ def test_refresh_rotates_token_and_revokes_the_old_one(
     client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
     assert login_response.status_code == 200
 
@@ -178,7 +213,7 @@ def test_reused_revoked_refresh_token_is_rejected(
     client: TestClient, fake_email_sender: FakeEmailSender
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
 
     original_cookie_value = client.cookies.get("bp_refresh_token")
@@ -194,7 +229,7 @@ def test_logout_revokes_session_and_clears_cookie(
     client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
 
     logout_response = client.post("/api/v1/auth/logout")
@@ -202,6 +237,65 @@ def test_logout_revokes_session_and_clears_cookie(
 
     refresh_response = client.post("/api/v1/auth/refresh")
     assert refresh_response.status_code == 401
+
+
+def test_logout_with_stale_pre_rotation_token_revokes_entire_session_family(
+    client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session, test_settings
+) -> None:
+    """logout must identify the user from *any* RefreshSession matching the
+    presented token hash -- active or already revoked -- and then revoke
+    every active session for that user, not just the one session matching
+    the presented (possibly stale, pre-rotation) token. Presenting a
+    revoked predecessor must not leave a rotated successor session usable.
+    """
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
+    login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
+    assert login_response.status_code == 200
+    stale_token_a = client.cookies.get(test_settings.refresh_cookie_name)
+    assert stale_token_a is not None
+
+    # Rotate: the cookie jar now holds the fresh token B, and A is revoked.
+    refresh_response = client.post("/api/v1/auth/refresh")
+    assert refresh_response.status_code == 200, refresh_response.text
+    current_token_b = client.cookies.get(test_settings.refresh_cookie_name)
+    assert current_token_b is not None
+    assert current_token_b != stale_token_a
+
+    # Present the stale, already-revoked predecessor token to logout.
+    client.cookies.set(test_settings.refresh_cookie_name, stale_token_a)
+    logout_response = client.post("/api/v1/auth/logout")
+    assert logout_response.status_code == 200
+
+    # The rotated successor (B), which logout never directly saw, must now
+    # be rejected too -- the whole session family for this user was
+    # revoked, not just the stale token's own row.
+    client.cookies.set(test_settings.refresh_cookie_name, current_token_b)
+    refresh_after_logout = client.post("/api/v1/auth/refresh")
+    assert refresh_after_logout.status_code == 401
+
+    sessions = db_session.execute(select(RefreshSession)).scalars().all()
+    assert len(sessions) == 2
+    assert all(session.revoked_at is not None for session in sessions)
+
+
+def test_logout_with_current_token_or_unknown_token_remains_safe(
+    client: TestClient, fake_email_sender: FakeEmailSender, test_settings
+) -> None:
+    token = _register_and_get_verify_token(client, fake_email_sender)
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
+    client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
+
+    # Logging out with the current, still-active token remains a normal
+    # idempotent success.
+    logout_response = client.post("/api/v1/auth/logout")
+    assert logout_response.status_code == 200
+    assert test_settings.refresh_cookie_name not in logout_response.cookies
+
+    # A wholly unknown token is also a safe, idempotent success.
+    client.cookies.set(test_settings.refresh_cookie_name, "unknown-token-value")
+    unknown_logout_response = client.post("/api/v1/auth/logout")
+    assert unknown_logout_response.status_code == 200
 
 
 def test_forgot_password_returns_generic_message_for_unknown_email(client: TestClient) -> None:
@@ -217,7 +311,7 @@ def test_forgot_password_and_reset_revokes_all_sessions(
     client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
     assert login_response.status_code == 200
 
@@ -256,7 +350,7 @@ def test_protected_endpoint_accepts_valid_bearer_token(
     client: TestClient, fake_email_sender: FakeEmailSender
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
     access_token = login_response.json()["access_token"]
 
@@ -265,60 +359,72 @@ def test_protected_endpoint_accepts_valid_bearer_token(
     assert response.json() == []
 
 
-def test_re_registration_with_new_password_controls_final_login_password(
+def test_attacker_registered_email_cannot_choose_owners_password(
     client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
 ) -> None:
-    """An attacker who registers an email they do not control (password A)
-    must not be able to take over the account once the real mailbox owner
-    re-registers with a different password (B) and verifies the latest
-    token: only B must work, the stale token must be dead, and A must never
-    log in even after verification.
+    """register never accepts a password at all, so an attacker who
+    registers an email they do not control cannot pre-choose the
+    eventual credential. The real mailbox owner re-registering (a
+    resend, not a password choice) and then verifying with the latest
+    token, supplying their own chosen password, is the only way the
+    account ever gets a usable password. The stale token from the first
+    registration attempt must be dead.
     """
-    attacker_password = "attacker-chosen-password-A"
     owner_password = "owner-chosen-password-B"
 
-    register_a = client.post(
-        "/api/v1/auth/register", json={"email": EMAIL, "password": attacker_password}
-    )
+    register_a = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert register_a.status_code == 201, register_a.text
     stale_token = fake_email_sender.last_email.token
 
-    register_b = client.post(
-        "/api/v1/auth/register", json={"email": EMAIL, "password": owner_password}
-    )
+    register_b = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert register_b.status_code == 201, register_b.text
     latest_token = fake_email_sender.last_email.token
     assert latest_token != stale_token
 
-    verify_response = client.post("/api/v1/auth/verify-email", json={"token": latest_token})
+    verify_response = client.post(
+        "/api/v1/auth/verify-email", json={"token": latest_token, "password": owner_password}
+    )
     assert verify_response.status_code == 200, verify_response.text
 
-    # The stale token from the attacker's original registration is dead.
-    stale_verify = client.post("/api/v1/auth/verify-email", json={"token": stale_token})
+    # The stale token from the first (attacker's) registration attempt is
+    # dead and cannot be used to choose any password.
+    stale_verify = client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": stale_token, "password": "attacker-chosen-password-A"},
+    )
     assert stale_verify.status_code == 400
 
     # Only the mailbox owner's chosen password logs in.
     attacker_login = client.post(
-        "/api/v1/auth/login", json={"email": EMAIL, "password": attacker_password}
+        "/api/v1/auth/login",
+        json={"email": EMAIL, "password": "attacker-chosen-password-A"},
     )
     assert attacker_login.status_code == 401
 
     owner_login = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": owner_password})
     assert owner_login.status_code == 200, owner_login.text
 
-    # No leftover pending password hash is ever exposed.
+    # A further unauthenticated re-registration attempt after verification
+    # is rejected outright (already verified) and cannot affect the
+    # chosen password either way.
+    repeat_register = client.post("/api/v1/auth/register", json={"email": EMAIL})
+    assert repeat_register.status_code == 409
+    still_owner_login = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": owner_password})
+    assert still_owner_login.status_code == 200
+
     user = db_session.execute(select(User).where(User.email == EMAIL)).scalar_one()
-    users_response = None
-    _ = users_response, user  # pending_password_hash lives only on EmailToken, never on User/responses
+    assert user.is_verified is True
 
 
 def test_verify_before_re_registration_uses_the_only_submitted_password(
     client: TestClient, fake_email_sender: FakeEmailSender
 ) -> None:
     """A single registration (no re-registration race) still works: the
-    one token that was issued carries that one password."""
+    one password submitted at verify time is what ends up usable."""
     token = _register_and_get_verify_token(client, fake_email_sender)
-    verify_response = client.post("/api/v1/auth/verify-email", json={"token": token})
+    verify_response = client.post(
+        "/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD}
+    )
     assert verify_response.status_code == 200
 
     login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
@@ -332,14 +438,54 @@ def test_unverified_user_cannot_login_even_with_registered_password(
     unusable placeholder -- not derived from any submitted password."""
     _register_and_get_verify_token(client, fake_email_sender)
     response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
-    assert response.status_code == 403
+    assert response.status_code == 401
+
+
+# --- Registration/mailbox password authority contract ------------------------
+#
+# Registration proves nothing but "I want to send a verification email to
+# this address" -- it must never accept, hash, store, or bind a password.
+# The password is chosen only when the verification token is consumed, so
+# whoever controls the mailbox -- not whoever first (or last) POSTs to
+# /register -- controls the account's eventual credential.
+
+
+def test_register_is_email_only_and_verify_requires_chosen_password(
+    client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
+) -> None:
+    """register accepts only an email (no password field at all) and
+    creates an unverified account with an unguessable placeholder
+    password_hash. The mailbox owner's password is submitted only at
+    verify-email, alongside the token, and that is what ends up usable."""
+    register_response = client.post("/api/v1/auth/register", json={"email": EMAIL})
+    assert register_response.status_code == 201, register_response.text
+    assert fake_email_sender.last_email.to_address == EMAIL
+    token = fake_email_sender.last_email.token
+
+    user = db_session.execute(select(User).where(User.email == EMAIL)).scalar_one()
+    assert user.is_verified is False
+    # The placeholder hash is not derived from anything an unauthenticated
+    # caller submitted, and login is blocked for unverified accounts
+    # regardless -- there is no password that logs in yet.
+    login_before_verify = client.post(
+        "/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD}
+    )
+    assert login_before_verify.status_code == 401
+
+    verify_response = client.post(
+        "/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD}
+    )
+    assert verify_response.status_code == 200, verify_response.text
+
+    login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
+    assert login_response.status_code == 200, login_response.text
 
 
 def test_reset_password_invalidates_all_sibling_reset_tokens(
     client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
 
     client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
     first_reset_token = fake_email_sender.last_email.token
@@ -377,7 +523,7 @@ def test_refresh_locks_user_row_before_revalidating_session(
     order directly since SQLite cannot exercise real lock contention.
     """
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
 
     touched_tables: list[str] = []
@@ -418,7 +564,7 @@ def test_forgot_password_locks_user_before_touching_reset_tokens(
     exercise real lock contention.
     """
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
 
     touched_tables: list[str] = []
 
@@ -455,7 +601,7 @@ def test_forgot_password_after_reset_mints_independent_post_reset_token(
     cannot interleave with an in-progress one.
     """
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
 
     client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
     first_reset_token = fake_email_sender.last_email.token
@@ -510,7 +656,7 @@ def test_refresh_observes_concurrently_revoked_session_despite_stale_preload(
     client: TestClient, fake_email_sender: FakeEmailSender, session_factory, test_settings
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     login_response = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
     assert login_response.status_code == 200, login_response.text
     raw_refresh_token = client.cookies.get(test_settings.refresh_cookie_name)
@@ -561,7 +707,7 @@ def test_reset_password_observes_concurrently_used_token_despite_stale_preload(
     client: TestClient, fake_email_sender: FakeEmailSender, session_factory
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
     client.post("/api/v1/auth/forgot-password", json={"email": EMAIL})
     raw_reset_token = fake_email_sender.last_email.token
     token_hash = hash_token(raw_reset_token)
@@ -623,12 +769,12 @@ def test_register_rechecks_verification_state_after_lock_despite_stale_preload(
 
         # Session B independently verifies the account and commits,
         # simulating a concurrent verification racing the re-registration.
-        auth.verify_email(VerifyEmailRequest(token=raw_token), db=session_b)
+        auth.verify_email(VerifyEmailRequest(token=raw_token, password=PASSWORD), db=session_b)
         assert session_b.execute(select(User).where(User.id == user_id)).scalar_one().is_verified
 
         with pytest.raises(HTTPException) as excinfo:
             auth.register(
-                RegisterRequest(email=EMAIL, password="attacker-new-password-1"),
+                RegisterRequest(email=EMAIL),
                 db=session_a,
                 settings=test_settings,
                 email_sender=fake_email_sender,
@@ -678,7 +824,7 @@ def test_forgot_password_rechecks_active_state_after_lock_despite_stale_preload(
     from app.schemas.auth import ForgotPasswordRequest
 
     token = _register_and_get_verify_token(client, fake_email_sender)
-    client.post("/api/v1/auth/verify-email", json={"token": token})
+    client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
 
     session_a = session_factory()
     session_b = session_factory()

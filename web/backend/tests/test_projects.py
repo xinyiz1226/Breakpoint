@@ -247,6 +247,68 @@ def test_delete_project_with_initiated_upload_aborts_multipart_and_releases_rese
     assert len(ledger_entries) >= 2  # reservation + release, preserved for audit
 
 
+def test_delete_project_does_not_release_storage_reservation_before_abort_succeeds(
+    client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    """Deleting a project with an UPLOAD_INITIATED multipart must not free
+    the storage_reserved_bytes quota until ABORT_MULTIPART actually
+    succeeds. If the synchronous best-effort abort attempted during delete
+    fails, the reservation must remain charged (retryable, not lost) until
+    a later retry of the durable cleanup task succeeds."""
+    from app.services.storage_cleanup import retry_pending_cleanup_tasks
+
+    create_user(db_session, email="owner@example.com", password="reservation-timing-password")
+    token = login(client, email="owner@example.com", password="reservation-timing-password")
+    project_id = client.post(
+        "/api/v1/projects", json={"name": "Uploading"}, headers=auth_headers(token)
+    ).json()["id"]
+    initiate_body = _initiate_upload(client, token, project_id).json()
+    video_asset_id = uuid.UUID(initiate_body["video_asset_id"])
+
+    quota_before = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota_before["storage_bytes_used"] == _DECLARED_SIZE
+
+    # Inject a single abort failure so the synchronous cleanup attempt made
+    # during delete does not succeed.
+    fake_storage.fail_next_aborts = 1
+
+    response = client.delete(f"/api/v1/projects/{project_id}", headers=auth_headers(token))
+    assert response.status_code == 204
+
+    # The abort failed, so the reservation must still be charged -- not
+    # released ahead of the actual storage side effect succeeding.
+    quota_after_failed_delete = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota_after_failed_delete["storage_bytes_used"] == _DECLARED_SIZE
+
+    task = (
+        db_session.execute(
+            select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id == video_asset_id)
+        )
+        .scalars()
+        .one()
+    )
+    assert task.operation == StorageCleanupOperation.ABORT_MULTIPART
+    assert task.status == StorageCleanupStatus.FAILED
+
+    # Retrying the durable cleanup task via the due sweep succeeds this
+    # time (no injected failure remaining) and only then is the
+    # reservation released. This is the same task the multipart-expiry
+    # scheduler created at initiate time, so it is only "due" once its
+    # own not_before has elapsed -- simulate an operator running the
+    # sweep well after that point.
+    from datetime import timedelta
+
+    from app.models.base import utcnow
+
+    processed = retry_pending_cleanup_tasks(
+        db_session, fake_storage, limit=10, now=utcnow() + timedelta(hours=25)
+    )
+    assert processed == 1
+
+    quota_after_retry = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota_after_retry["storage_bytes_used"] == 0
+
+
 def test_delete_project_with_uploaded_video_queues_delete_object_and_releases_once(
     client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
 ) -> None:

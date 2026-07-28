@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, Integer, String
+from sqlalchemy import DateTime, Enum, Index, Integer, String
 from sqlalchemy import Uuid as UuidType
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,15 @@ if TYPE_CHECKING:
 
 class StorageCleanupTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "storage_cleanup_tasks"
+    __table_args__ = (
+        Index(
+            "ix_storage_cleanup_tasks_video_asset_id_operation_generation",
+            "video_asset_id",
+            "operation",
+            "generation",
+            unique=True,
+        ),
+    )
 
     project_id: Mapped[uuid.UUID | None] = mapped_column(UuidType(as_uuid=True), nullable=True, index=True)
     video_asset_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -71,3 +80,18 @@ class StorageCleanupTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     not_before: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+
+    # Idempotency/uniqueness scope, together with (video_asset_id,
+    # operation): sourced from VideoAsset.cleanup_generation at the moment
+    # this task was created. Ordinary callers (project delete, an
+    # integrity-failure abort discovered in the same request that created
+    # the object) pass the asset's *current* generation, so a retry keeps
+    # reusing the same task. A caller that discovers a storage-side
+    # artifact may be newer than any prior cleanup attempt for this asset
+    # (finalize detecting a tombstone after its own S3 completion, while an
+    # earlier same-generation task may still be RUNNING) instead bumps the
+    # asset's generation first, guaranteeing get_or_create_cleanup_task
+    # creates a genuinely new successor task rather than reusing a task
+    # that may have already run its external side effect against a
+    # not-yet-existent object.
+    generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

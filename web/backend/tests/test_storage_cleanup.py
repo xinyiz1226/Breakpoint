@@ -1269,3 +1269,214 @@ def test_complete_claim_observes_fresh_state_across_two_sessions(
     finally:
         session_a.close()
         session_b.close()
+
+
+# --- Final-round item 3: cleanup intent generations / finalize-delete race --
+#
+# get_or_create_cleanup_task's existing-unfinished-task reuse is keyed only
+# by (video_asset_id, operation): if an earlier DELETE_OBJECT task for this
+# asset is still RUNNING (its external delete_object call already happened
+# -- against a not-yet-existent object -- but its completion commit has not
+# landed yet) at the exact moment finalize's own S3 completion discovers a
+# concurrent tombstone, the old code would reuse that RUNNING row instead of
+# creating a genuinely new one. That earlier task will go on to mark itself
+# COMPLETED without ever calling delete_object again, so the object finalize
+# just created is never actually queued for deletion. A durable `generation`
+# on StorageCleanupTask (and VideoAsset.cleanup_generation as the monotonic
+# source) fixes this: finalize's tombstone-detection path bumps the asset's
+# generation before creating its cleanup task, forcing a distinct successor
+# task rather than reusing the older, still in-flight one.
+
+
+def test_get_or_create_cleanup_task_scopes_reuse_by_generation(
+    db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    from app.services.storage_cleanup import get_or_create_cleanup_task
+    from tests.conftest import create_user
+
+    owner = create_user(db_session, email="generation-scope@example.com", password="generation-scope-pw")
+    object_key = "projects/x/source/generation.mp4"
+    task_gen0 = _create_delete_task(db_session, object_key=object_key, video_asset_id=uuid.uuid4())
+    video_asset_id = task_gen0.video_asset_id
+    task_gen0.status = StorageCleanupStatus.RUNNING
+    task_gen0.lease_token = uuid.uuid4()
+    db_session.commit()
+
+    # Requesting the same generation while the task is still RUNNING
+    # reuses it -- unchanged idempotency behavior for ordinary retries.
+    same_gen = get_or_create_cleanup_task(
+        db_session,
+        project_id=None,
+        video_asset_id=video_asset_id,
+        object_key=object_key,
+        upload_id=None,
+        operation=StorageCleanupOperation.DELETE_OBJECT,
+        generation=0,
+    )
+    db_session.commit()
+    assert same_gen.id == task_gen0.id
+
+    # A caller that has bumped the asset's generation (finalize detecting a
+    # tombstone while an earlier same-generation task is still RUNNING)
+    # must get a genuinely new, distinct task row -- never a reuse of the
+    # still in-flight generation-0 task.
+    successor = get_or_create_cleanup_task(
+        db_session,
+        project_id=None,
+        video_asset_id=video_asset_id,
+        object_key=object_key,
+        upload_id=None,
+        operation=StorageCleanupOperation.DELETE_OBJECT,
+        generation=1,
+    )
+    db_session.commit()
+    assert successor.id != task_gen0.id
+    assert successor.generation == 1
+    assert task_gen0.generation == 0
+
+    # A later call for the same (asset, operation, generation=1) reuses the
+    # successor rather than creating yet another duplicate.
+    successor_again = get_or_create_cleanup_task(
+        db_session,
+        project_id=None,
+        video_asset_id=video_asset_id,
+        object_key=object_key,
+        upload_id=None,
+        operation=StorageCleanupOperation.DELETE_OBJECT,
+        generation=1,
+    )
+    db_session.commit()
+    assert successor_again.id == successor.id
+
+
+def test_finalize_tombstone_race_creates_successor_generation_and_deletes_real_object(
+    session_factory, test_settings
+) -> None:
+    """End-to-end regression for the exact race described above, using a
+    single finalize call and the ``on_complete_multipart_upload`` fake
+    storage hook to interleave a concurrent project delete + an
+    independent cleanup session that claims (but does not yet complete) a
+    generation-0 DELETE_OBJECT task while finalize's own S3 object is being
+    created underneath it.
+    """
+    from app.models.base import utcnow
+    from app.models.project import Project
+    from app.models.user import User
+    from app.routers import uploads as uploads_router
+    from app.schemas.video import CompletedPart, FinalizeUploadRequest
+    from app.services.storage_cleanup import _claim_task_for_processing, _process_claim
+    from tests.conftest import create_user
+
+    storage = FakeObjectStorage()
+    session_finalize = session_factory()
+    session_cleanup = session_factory()
+    try:
+        owner = create_user(
+            session_finalize, email="generation-race@example.com", password="generation-race-pw"
+        )
+        object_key = "projects/x/source/generation-race.mp4"
+        upload_id = storage.create_multipart_upload(object_key=object_key, content_type="video/mp4")
+        video_asset = _create_upload_initiated_asset(
+            session_finalize,
+            owner_id=owner.id,
+            object_key=object_key,
+            upload_id=upload_id,
+            analysis_reserved_seconds=5.0,
+            storage_reserved_bytes=500,
+        )
+        video_asset_id = video_asset.id
+        project_id = video_asset.project_id
+        session_finalize.commit()
+
+        claimed_task1: dict[str, object] = {}
+
+        def _interleave_project_delete_and_running_cleanup() -> None:
+            # Fires from *inside* finalize's own complete_multipart_upload
+            # call, i.e. strictly after finalize durably committed its
+            # FINALIZING claim and released its locks, but before the
+            # object actually exists in storage.
+            locked_user = session_cleanup.execute(
+                select(User).where(User.id == owner.id).with_for_update()
+            ).scalar_one()
+            project = session_cleanup.execute(
+                select(Project)
+                .where(Project.id == project_id, Project.owner_id == owner.id)
+                .with_for_update()
+            ).scalar_one()
+            project.deleted_at = utcnow()
+
+            task1 = StorageCleanupTask(
+                project_id=project_id,
+                video_asset_id=video_asset_id,
+                object_key=object_key,
+                operation=StorageCleanupOperation.DELETE_OBJECT,
+                generation=0,
+            )
+            session_cleanup.add(task1)
+            session_cleanup.commit()
+
+            # Claim it RUNNING (fresh lease committed) but deliberately do
+            # NOT call delete_object / complete it yet -- this is the
+            # window where the old code's reuse-by-(asset, operation)
+            # alone would have handed finalize this exact still-RUNNING
+            # row instead of a fresh successor.
+            claim = _claim_task_for_processing(session_cleanup, task1.id)
+            assert claim is not None
+            claimed_task1["task"], claimed_task1["lease"] = claim
+            claimed_task1["id"] = task1.id
+
+        storage.on_complete_multipart_upload = _interleave_project_delete_and_running_cleanup
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as excinfo:
+            uploads_router.finalize_upload(
+                project_id=project_id,
+                video_asset_id=video_asset_id,
+                payload=FinalizeUploadRequest(
+                    idempotency_key="generation-race",
+                    parts=[CompletedPart(part_number=1, etag="etag-1")],
+                ),
+                db=session_finalize,
+                current_user=owner,
+                settings=test_settings,
+                storage=storage,
+            )
+        assert excinfo.value.status_code == 409
+
+        # The real object, created by finalize's own S3 call, must have
+        # been deleted by a *successor* generation task -- not left
+        # orphaned because the old generation-0 task was reused.
+        assert object_key not in storage.objects
+
+        all_tasks = (
+            session_finalize.execute(
+                select(StorageCleanupTask)
+                .where(StorageCleanupTask.video_asset_id == video_asset_id)
+                .execution_options(populate_existing=True)
+            )
+            .scalars()
+            .all()
+        )
+        assert len(all_tasks) == 2
+        generations = sorted(task.generation for task in all_tasks)
+        assert generations == [0, 1]
+
+        successor_task = next(task for task in all_tasks if task.generation == 1)
+        assert successor_task.status == StorageCleanupStatus.COMPLETED
+        assert successor_task.id != claimed_task1["id"]
+
+        # Finish off the still-RUNNING generation-0 task (simulating a
+        # delayed/crash-recovered completion): idempotent no-op since the
+        # object is already gone, and it must not touch the successor.
+        _process_claim(session_cleanup, claimed_task1["task"], claimed_task1["lease"], storage)
+        gen0_task = session_finalize.execute(
+            select(StorageCleanupTask)
+            .where(StorageCleanupTask.id == claimed_task1["id"])
+            .execution_options(populate_existing=True)
+        ).scalar_one()
+        assert gen0_task.status == StorageCleanupStatus.COMPLETED
+        assert gen0_task.generation == 0
+    finally:
+        session_finalize.close()
+        session_cleanup.close()

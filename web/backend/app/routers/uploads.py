@@ -192,6 +192,7 @@ def _abort_and_queue_object_cleanup(
         object_key=video_asset.object_key,
         upload_id=None,
         operation=StorageCleanupOperation.DELETE_OBJECT,
+        generation=video_asset.cleanup_generation,
     )
     db.commit()
 
@@ -357,6 +358,7 @@ def initiate_upload(
         object_key=object_key,
         upload_id=upload_id,
         operation=StorageCleanupOperation.ABORT_MULTIPART,
+        generation=video_asset.cleanup_generation,
         not_before=upload_expires_at,
     )
 
@@ -566,6 +568,16 @@ def finalize_upload(
         reservation_service.release_analysis_reservation(db, video_asset)
         reservation_service.release_storage_reservation(db, video_asset)
         video_asset.status = VideoAssetStatus.CLEANUP_PENDING
+        # This object was only just confirmed to exist (head_object above,
+        # after our own S3 completion call) -- strictly newer than any
+        # cleanup attempt scheduled before that call returned. Bump the
+        # asset's generation before creating the task so an earlier
+        # same-generation DELETE_OBJECT task that might still be RUNNING
+        # (its external delete already ran, against a not-yet-existent
+        # object, but its completion commit has not landed yet) is never
+        # reused: this guarantees a genuinely new successor task actually
+        # attempts deletion of the object that exists now.
+        video_asset.cleanup_generation += 1
         task = storage_cleanup_service.get_or_create_cleanup_task(
             db,
             project_id=video_asset.project_id,
@@ -573,6 +585,7 @@ def finalize_upload(
             object_key=video_asset.object_key,
             upload_id=None,
             operation=StorageCleanupOperation.DELETE_OBJECT,
+            generation=video_asset.cleanup_generation,
         )
         db.commit()
         storage_cleanup_service.claim_and_process(db, task.id, storage)

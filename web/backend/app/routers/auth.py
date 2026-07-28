@@ -145,14 +145,14 @@ def register(
         for stale_token in stale_tokens:
             stale_token.used_at = now
     else:
-        # The real, login-controlling password hash is only ever assigned
-        # authoritatively (re)assigned at successful verification, from the
-        # matching token's pending_password_hash (see verify_email). Setting
-        # it here too, from the same password, keeps the single-registration
-        # path's is_verified=False rejection unchanged (still 403, not 401)
-        # while re-registration's overwrite is what verify_email actually
-        # fixes below.
-        user = User(email=normalized_email, password_hash=hash_password(payload.password))
+        # New registrations never carry a password: the row needs some
+        # non-null password_hash to satisfy the schema, so this is an
+        # unguessable, server-generated placeholder that nothing derives
+        # from any submitted input. It can never authenticate a login on
+        # its own (unverified login is forbidden regardless), and
+        # verify_email overwrites it with the mailbox owner's actually
+        # chosen password.
+        user = User(email=normalized_email, password_hash=hash_password(generate_opaque_token()))
         db.add(user)
         db.flush()
 
@@ -162,7 +162,6 @@ def register(
             user_id=user.id,
             purpose=EmailTokenPurpose.VERIFY_EMAIL,
             token_hash=hash_token(raw_token),
-            pending_password_hash=hash_password(payload.password),
             expires_at=utcnow() + timedelta(hours=settings.email_verification_ttl_hours),
         )
     )
@@ -208,18 +207,33 @@ def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)) -> 
         .with_for_update()
         .execution_options(populate_existing=True)
     ).scalar_one_or_none()
-    if token is None or not token.is_usable or token.pending_password_hash is None:
+    if token is None or not token.is_usable:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
 
     # Whoever controls the mailbox -- by choosing which verification link
-    # to click -- controls the account's final password. Assign it
-    # atomically from this token and consume it; any other outstanding
-    # VERIFY_EMAIL token for this user (from an earlier registration
-    # attempt with a different password) was already invalidated at
-    # register time, so it cannot later overwrite this assignment.
-    user.password_hash = token.pending_password_hash
+    # to click and which password to submit alongside it -- controls the
+    # account's final password. Assign it atomically here and consume the
+    # token.
+    user.password_hash = hash_password(payload.password)
     user.is_verified = True
     token.used_at = utcnow()
+
+    # Invalidate every other outstanding, unused VERIFY_EMAIL token for
+    # this user in the same locked transaction (e.g. from an earlier
+    # registration/re-registration attempt with a different mailbox
+    # owner's chosen password), so it can never later be redeemed to
+    # overwrite this assignment.
+    sibling_tokens = db.execute(
+        select(EmailToken).where(
+            EmailToken.user_id == user.id,
+            EmailToken.purpose == EmailTokenPurpose.VERIFY_EMAIL,
+            EmailToken.id != token.id,
+            EmailToken.used_at.is_(None),
+        )
+    ).scalars()
+    for sibling_token in sibling_tokens:
+        sibling_token.used_at = utcnow()
+
     db.commit()
     return MessageResponse(message="Email verified. You can now log in.")
 
@@ -346,11 +360,41 @@ def logout(
     raw_refresh_token = request.cookies.get(settings.refresh_cookie_name)
     if raw_refresh_token is not None:
         token_hash = hash_token(raw_refresh_token)
-        session = db.execute(
+        # Non-locking lookup only to identify the user -- matches any
+        # RefreshSession row for this token hash regardless of whether it
+        # is still active or already revoked (e.g. a stale pre-rotation
+        # token), so a client presenting an old cookie after a refresh
+        # rotation still identifies the right account to log out.
+        preview_session = db.execute(
             select(RefreshSession).where(RefreshSession.token_hash == token_hash)
         ).scalar_one_or_none()
-        if session is not None and session.revoked_at is None:
-            session.revoked_at = utcnow()
+        if preview_session is not None:
+            # Lock the User row first -- the same serialization point
+            # login/refresh/reset use -- before revoking anything, so this
+            # can never interleave with a concurrent refresh rotation.
+            db.execute(
+                select(User).where(User.id == preview_session.user_id).with_for_update()
+            ).scalar_one_or_none()
+            # Revoke every currently-active session for this user, not just
+            # the one matching the presented (possibly stale) token: a
+            # rotated successor session must not remain usable just
+            # because logout only ever saw its revoked predecessor.
+            # populate_existing=True: any of these rows may already be
+            # present in this session's identity map from the preview
+            # lookup above, and a concurrent commit must be observed here
+            # rather than returning stale in-memory attributes.
+            active_sessions = db.execute(
+                select(RefreshSession)
+                .where(
+                    RefreshSession.user_id == preview_session.user_id,
+                    RefreshSession.revoked_at.is_(None),
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).scalars()
+            now = utcnow()
+            for active_session in active_sessions:
+                active_session.revoked_at = now
             db.commit()
 
     _clear_refresh_cookie(response, settings)
