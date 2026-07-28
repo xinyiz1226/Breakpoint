@@ -5,10 +5,11 @@ Adds:
   the period a ledger entry counts against, independent of ``created_at``.
   A release or worker resize written after a calendar rollover for a
   reservation that belongs to an earlier month must carry that earlier
-  month, not the month it happens to be written in, so monthly analysis
-  usage never nets a stale-month event against the wrong month. Backfilled
-  from each existing row's ``created_at`` (truncated to its UTC calendar
-  month) before being made non-null, then indexed on
+  month, not the month it happens to be written in, so monthly analysis usage
+  never nets a stale-month event against the wrong month. Existing analysis
+  rows are grouped by their asset/job lifecycle and inherit its first
+  reservation month; unrelated rows fall back to their own ``created_at``
+  month. The column is then made non-null and indexed on
   ``(user_id, accounting_month)``.
 - ``video_assets.analysis_reservation_month`` / ``storage_reservation_month``
   (Date, nullable): durable memory of which accounting period a *live*
@@ -25,6 +26,9 @@ Create Date: 2026-09-01
 
 from __future__ import annotations
 
+from collections import defaultdict
+from datetime import date
+from typing import Any
 from typing import Sequence, Union
 
 from alembic import op
@@ -42,6 +46,192 @@ def _month_start_expression(column_name: str, dialect_name: str) -> str:
         # can assign UTC boundary rows to the wrong accounting month.
         return f"date_trunc('month', {column_name} AT TIME ZONE 'UTC')::date"
     return f"date({column_name}, 'start of month')"
+
+
+def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
+    """Assign one accounting period to each recoverable analysis lifecycle."""
+    job_asset_by_id = {
+        row.id: row.video_asset_id
+        for row in bind.execute(
+            sa.text("SELECT id, video_asset_id FROM analysis_jobs")
+        )
+    }
+    rows = bind.execute(
+        sa.text(
+            """
+            SELECT
+                id,
+                user_id,
+                event_type,
+                analysis_job_id,
+                video_asset_id,
+                seconds_delta,
+                accounting_month,
+                created_at
+            FROM quota_ledger_entries
+            WHERE event_type IN (
+                'ANALYSIS_RESERVED',
+                'ANALYSIS_RESERVATION_RELEASED',
+                'ANALYSIS_COMPLETED'
+            )
+            ORDER BY created_at, id
+            """
+        )
+    ).mappings().all()
+
+    asset_id_by_entry_id: dict[Any, Any] = {}
+    lifecycle_month_by_asset_id: dict[Any, date | str] = {}
+    for row in rows:
+        asset_id = row["video_asset_id"]
+        if asset_id is None and row["analysis_job_id"] is not None:
+            asset_id = job_asset_by_id.get(row["analysis_job_id"])
+        if asset_id is None:
+            continue
+
+        asset_id_by_entry_id[row["id"]] = asset_id
+        if row["event_type"] == "ANALYSIS_RESERVED" and row["seconds_delta"] is not None:
+            existing = lifecycle_month_by_asset_id.get(asset_id)
+            if existing is None or row["accounting_month"] < existing:
+                lifecycle_month_by_asset_id[asset_id] = row["accounting_month"]
+
+    entry_updates = [
+        {
+            "id": row["id"],
+            "accounting_month": lifecycle_month_by_asset_id[asset_id_by_entry_id[row["id"]]],
+        }
+        for row in rows
+        if row["id"] in asset_id_by_entry_id
+        and asset_id_by_entry_id[row["id"]] in lifecycle_month_by_asset_id
+    ]
+    if entry_updates:
+        bind.execute(
+            sa.text(
+                """
+                UPDATE quota_ledger_entries
+                SET accounting_month = :accounting_month
+                WHERE id = :id
+                """
+            ),
+            entry_updates,
+        )
+
+    live_asset_updates = [
+        {"id": asset_id, "accounting_month": accounting_month}
+        for asset_id, accounting_month in lifecycle_month_by_asset_id.items()
+    ]
+    if live_asset_updates:
+        bind.execute(
+            sa.text(
+                """
+                UPDATE video_assets
+                SET analysis_reservation_month = :accounting_month
+                WHERE id = :id AND analysis_reserved_seconds > 0
+                """
+            ),
+            live_asset_updates,
+        )
+
+    _normalize_unassociated_negative_analysis_periods(
+        bind,
+        associated_entry_ids=set(asset_id_by_entry_id),
+    )
+
+
+def _normalize_unassociated_negative_analysis_periods(
+    bind: sa.engine.Connection,
+    *,
+    associated_entry_ids: set[Any],
+) -> None:
+    """Move recoverable orphan releases to an earlier positive period.
+
+    Rows without an asset/job association retain their created-at month unless
+    that would create a negative monthly balance. In that case, an orphan
+    release can safely consume a prior positive balance for the same user.
+    Irrecoverably malformed history aborts the migration instead of granting
+    quota through a negative balance.
+    """
+    rows = bind.execute(
+        sa.text(
+            """
+            SELECT
+                id,
+                user_id,
+                event_type,
+                seconds_delta,
+                accounting_month,
+                created_at
+            FROM quota_ledger_entries
+            WHERE event_type IN (
+                'ANALYSIS_RESERVED',
+                'ANALYSIS_RESERVATION_RELEASED'
+            )
+            ORDER BY created_at, id
+            """
+        )
+    ).mappings().all()
+
+    balance_by_user_month: dict[tuple[Any, date | str], float] = defaultdict(float)
+    for row in rows:
+        balance_by_user_month[(row["user_id"], row["accounting_month"])] += float(
+            row["seconds_delta"] or 0.0
+        )
+
+    orphan_releases = [
+        row
+        for row in rows
+        if row["id"] not in associated_entry_ids
+        and row["event_type"] == "ANALYSIS_RESERVATION_RELEASED"
+        and float(row["seconds_delta"] or 0.0) < 0
+    ]
+    updates: list[dict[str, Any]] = []
+    for row in orphan_releases:
+        user_id = row["user_id"]
+        current_month = row["accounting_month"]
+        current_key = (user_id, current_month)
+        if balance_by_user_month[current_key] >= 0:
+            continue
+
+        release_amount = -float(row["seconds_delta"])
+        candidate_months = sorted(
+            (
+                month
+                for (candidate_user_id, month), balance in balance_by_user_month.items()
+                if candidate_user_id == user_id
+                and month < current_month
+                and balance >= release_amount
+            ),
+            reverse=True,
+        )
+        if not candidate_months:
+            continue
+
+        original_month = candidate_months[0]
+        balance_by_user_month[current_key] += release_amount
+        balance_by_user_month[(user_id, original_month)] -= release_amount
+        updates.append({"id": row["id"], "accounting_month": original_month})
+
+    if updates:
+        bind.execute(
+            sa.text(
+                """
+                UPDATE quota_ledger_entries
+                SET accounting_month = :accounting_month
+                WHERE id = :id
+                """
+            ),
+            updates,
+        )
+
+    negative_balances = [
+        (user_id, month, balance)
+        for (user_id, month), balance in balance_by_user_month.items()
+        if balance < -1e-9
+    ]
+    if negative_balances:
+        raise RuntimeError(
+            "Cannot safely migrate negative monthly analysis quota balances: "
+            f"{negative_balances}"
+        )
 
 
 def upgrade() -> None:
@@ -75,34 +265,19 @@ def upgrade() -> None:
             )
         )
 
-    # Preserve the accounting period for reservations that are still live at
-    # deploy time. The latest reservation event is authoritative after a
-    # worker resize; asset.created_at is a safe fallback for malformed legacy
-    # rows because initiation creates both the asset and its first reservation
-    # together.
+    # Reservation releases and worker resizes are compensating entries in the
+    # original reservation lifecycle, not new accounting-period activity.
+    # Resolve rows through either video_asset_id or analysis_job_id and assign
+    # the earliest reservation month to the full lifecycle.
+    _backfill_analysis_lifecycle_months(bind)
+
+    # Storage is a standing all-history occupancy balance rather than a
+    # monthly allowance. Its durable live-reservation period is retained for
+    # audit, using the matching reservation row when available.
     month_from_asset_created_at = _month_start_expression(
         "video_assets.created_at", bind.dialect.name
     )
 
-    bind.execute(
-        sa.text(
-            f"""
-            UPDATE video_assets
-            SET analysis_reservation_month = COALESCE(
-                (
-                    SELECT quota_ledger_entries.accounting_month
-                    FROM quota_ledger_entries
-                    WHERE quota_ledger_entries.video_asset_id = video_assets.id
-                      AND quota_ledger_entries.event_type = 'ANALYSIS_RESERVED'
-                    ORDER BY quota_ledger_entries.created_at DESC, quota_ledger_entries.id DESC
-                    LIMIT 1
-                ),
-                {month_from_asset_created_at}
-            )
-            WHERE analysis_reserved_seconds > 0
-            """
-        )
-    )
     bind.execute(
         sa.text(
             f"""
@@ -119,6 +294,16 @@ def upgrade() -> None:
                 {month_from_asset_created_at}
             )
             WHERE storage_reserved_bytes > 0
+            """
+        )
+    )
+    bind.execute(
+        sa.text(
+            f"""
+            UPDATE video_assets
+            SET analysis_reservation_month = {month_from_asset_created_at}
+            WHERE analysis_reserved_seconds > 0
+              AND analysis_reservation_month IS NULL
             """
         )
     )

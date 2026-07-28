@@ -77,6 +77,152 @@ def scratch_db_path():
         path.unlink()
 
 
+def _seed_analysis_lifecycle(
+    engine: sa.engine.Engine,
+    *,
+    live_reserved_seconds: float,
+    entries: list[tuple[str, float, datetime, str]],
+) -> tuple[uuid.UUID, list[uuid.UUID]]:
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    entry_ids: list[uuid.UUID] = []
+    created_at = entries[0][2]
+
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                """
+                INSERT INTO users (
+                    id, created_at, updated_at, email, password_hash, role,
+                    is_active, is_verified, quota_monthly_analysis_seconds_override,
+                    quota_max_active_analysis_jobs_override, quota_storage_bytes_override
+                ) VALUES (
+                    :id, :created_at, :updated_at, :email, :password_hash, :role,
+                    :is_active, :is_verified, NULL, NULL, NULL
+                )
+                """
+            ),
+            {
+                "id": str(user_id),
+                "created_at": created_at,
+                "updated_at": created_at,
+                "email": f"{user_id}@example.com",
+                "password_hash": "not-a-real-hash",
+                "role": "USER",
+                "is_active": True,
+                "is_verified": True,
+            },
+        )
+        conn.execute(
+            sa.text(
+                """
+                INSERT INTO projects (id, created_at, updated_at, owner_id, name, deleted_at)
+                VALUES (:id, :created_at, :updated_at, :owner_id, :name, NULL)
+                """
+            ),
+            {
+                "id": str(project_id),
+                "created_at": created_at,
+                "updated_at": created_at,
+                "owner_id": str(user_id),
+                "name": "Quota Lifecycle Migration",
+            },
+        )
+        conn.execute(
+            sa.text(
+                """
+                INSERT INTO video_assets (
+                    id, created_at, updated_at, project_id, owner_id, object_key,
+                    original_filename, content_type, declared_size_bytes,
+                    actual_size_bytes, declared_duration_seconds, duration_seconds,
+                    duration_status, retention_expires_at, status, upload_id,
+                    part_count, upload_expires_at, finalize_idempotency_key,
+                    finalize_request_fingerprint, analysis_reserved_seconds,
+                    storage_reserved_bytes, storage_counted_bytes, cleanup_generation
+                ) VALUES (
+                    :id, :created_at, :updated_at, :project_id, :owner_id, :object_key,
+                    :original_filename, :content_type, :declared_size_bytes,
+                    NULL, :declared_duration_seconds, NULL,
+                    NULL, NULL, :status, :upload_id,
+                    :part_count, NULL, NULL,
+                    NULL, :analysis_reserved_seconds,
+                    0, 0, 0
+                )
+                """
+            ),
+            {
+                "id": str(asset_id),
+                "created_at": created_at,
+                "updated_at": entries[-1][2],
+                "project_id": str(project_id),
+                "owner_id": str(user_id),
+                "object_key": f"videos/{asset_id}.mp4",
+                "original_filename": "clip.mp4",
+                "content_type": "video/mp4",
+                "declared_size_bytes": 1024,
+                "declared_duration_seconds": entries[0][1],
+                "status": "UPLOADED",
+                "upload_id": f"upload-{asset_id}",
+                "part_count": 1,
+                "analysis_reserved_seconds": live_reserved_seconds,
+            },
+        )
+        conn.execute(
+            sa.text(
+                """
+                INSERT INTO analysis_jobs (
+                    id, created_at, updated_at, project_id, video_asset_id, owner_id,
+                    status, progress, current_step, worker_version, engine_params,
+                    report_object_key, failure_summary, failure_detail, started_at, finished_at
+                ) VALUES (
+                    :id, :created_at, :updated_at, :project_id, :video_asset_id, :owner_id,
+                    :status, 0, NULL, NULL, NULL,
+                    NULL, NULL, NULL, NULL, NULL
+                )
+                """
+            ),
+            {
+                "id": str(job_id),
+                "created_at": created_at,
+                "updated_at": entries[-1][2],
+                "project_id": str(project_id),
+                "video_asset_id": str(asset_id),
+                "owner_id": str(user_id),
+                "status": "QUEUED",
+            },
+        )
+
+        for event_type, seconds_delta, event_created_at, association in entries:
+            entry_id = uuid.uuid4()
+            entry_ids.append(entry_id)
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO quota_ledger_entries (
+                        id, user_id, event_type, analysis_job_id, video_asset_id,
+                        seconds_delta, bytes_delta, created_at
+                    ) VALUES (
+                        :id, :user_id, :event_type, :analysis_job_id, :video_asset_id,
+                        :seconds_delta, NULL, :created_at
+                    )
+                    """
+                ),
+                {
+                    "id": str(entry_id),
+                    "user_id": str(user_id),
+                    "event_type": event_type,
+                    "analysis_job_id": str(job_id) if association == "job" else None,
+                    "video_asset_id": str(asset_id) if association == "asset" else None,
+                    "seconds_delta": seconds_delta,
+                    "created_at": event_created_at,
+                },
+            )
+
+    return asset_id, entry_ids
+
+
 def _seed_duplicate_generation_group(engine: sa.engine.Engine) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """Seed one user/project/video_asset plus two historical cleanup tasks
     sharing (video_asset_id, operation), as would exist on a real 0006
@@ -542,5 +688,165 @@ def test_0008_backfills_live_reservation_months_from_original_ledger_entries(scr
             ).one()
             assert row.analysis_reservation_month == "2025-01-01"
             assert row.storage_reservation_month == "2025-02-01"
+    finally:
+        engine.dispose()
+
+
+def test_0008_backfill_books_cross_month_release_to_original_reservation_period(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    january = datetime(2025, 1, 15, tzinfo=timezone.utc)
+    february = datetime(2025, 2, 3, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        _asset_id, entry_ids = _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=0.0,
+            entries=[
+                ("ANALYSIS_RESERVED", 100.0, january, "asset"),
+                ("ANALYSIS_RESERVATION_RELEASED", -100.0, february, "asset"),
+            ],
+        )
+    finally:
+        engine.dispose()
+
+    _run_alembic(scratch_db_path, "0008")
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.text(
+                    """
+                    SELECT accounting_month, seconds_delta
+                    FROM quota_ledger_entries
+                    WHERE id IN (:reserved_id, :released_id)
+                    ORDER BY created_at
+                    """
+                ),
+                {
+                    "reserved_id": str(entry_ids[0]),
+                    "released_id": str(entry_ids[1]),
+                },
+            ).all()
+            assert rows == [("2025-01-01", 100.0), ("2025-01-01", -100.0)]
+
+            balances = conn.execute(
+                sa.text(
+                    """
+                    SELECT accounting_month, SUM(seconds_delta)
+                    FROM quota_ledger_entries
+                    GROUP BY accounting_month
+                    ORDER BY accounting_month
+                    """
+                )
+            ).all()
+            assert balances == [("2025-01-01", 0.0)]
+    finally:
+        engine.dispose()
+
+
+def test_0008_backfill_keeps_cross_month_resize_in_original_period(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    january = datetime(2025, 1, 15, tzinfo=timezone.utc)
+    february = datetime(2025, 2, 3, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        asset_id, entry_ids = _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=150.0,
+            entries=[
+                ("ANALYSIS_RESERVED", 100.0, january, "asset"),
+                ("ANALYSIS_RESERVATION_RELEASED", -100.0, february, "job"),
+                ("ANALYSIS_RESERVED", 150.0, february, "job"),
+            ],
+        )
+    finally:
+        engine.dispose()
+
+    _run_alembic(scratch_db_path, "0008")
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.connect() as conn:
+            months = conn.execute(
+                sa.text(
+                    """
+                    SELECT accounting_month
+                    FROM quota_ledger_entries
+                    WHERE id IN (:initial_id, :release_id, :replacement_id)
+                    ORDER BY created_at, id
+                    """
+                ),
+                {
+                    "initial_id": str(entry_ids[0]),
+                    "release_id": str(entry_ids[1]),
+                    "replacement_id": str(entry_ids[2]),
+                },
+            ).scalars().all()
+            assert months == ["2025-01-01", "2025-01-01", "2025-01-01"]
+
+            balances = conn.execute(
+                sa.text(
+                    """
+                    SELECT accounting_month, SUM(seconds_delta)
+                    FROM quota_ledger_entries
+                    GROUP BY accounting_month
+                    ORDER BY accounting_month
+                    """
+                )
+            ).all()
+            assert balances == [("2025-01-01", 150.0)]
+
+            asset_month = conn.execute(
+                sa.text(
+                    "SELECT analysis_reservation_month FROM video_assets WHERE id = :id"
+                ),
+                {"id": str(asset_id)},
+            ).scalar_one()
+            assert asset_month == "2025-01-01"
+    finally:
+        engine.dispose()
+
+
+def test_0008_backfill_normalizes_unassociated_release_without_negative_period(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    january = datetime(2025, 1, 15, tzinfo=timezone.utc)
+    february = datetime(2025, 2, 3, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        _asset_id, entry_ids = _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=0.0,
+            entries=[
+                ("ANALYSIS_RESERVED", 100.0, january, "none"),
+                ("ANALYSIS_RESERVATION_RELEASED", -100.0, february, "none"),
+            ],
+        )
+    finally:
+        engine.dispose()
+
+    _run_alembic(scratch_db_path, "0008")
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.text(
+                    """
+                    SELECT accounting_month, seconds_delta
+                    FROM quota_ledger_entries
+                    WHERE id IN (:reserved_id, :released_id)
+                    ORDER BY created_at
+                    """
+                ),
+                {
+                    "reserved_id": str(entry_ids[0]),
+                    "released_id": str(entry_ids[1]),
+                },
+            ).all()
+            assert rows == [("2025-01-01", 100.0), ("2025-01-01", -100.0)]
     finally:
         engine.dispose()
