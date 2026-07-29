@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.enums import VideoAssetStatus
+
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -23,3 +25,4 @@ class ProjectRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     has_video: bool = False
+    video_asset_status: VideoAssetStatus | None = None

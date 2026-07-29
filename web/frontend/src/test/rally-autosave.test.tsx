@@ -27,6 +27,7 @@ function setup() {
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     has_video: true,
+    video_asset_status: "uploaded",
   });
   vi.spyOn(api, "getRallies").mockResolvedValue([rally]);
   vi.spyOn(api, "sourceUrl").mockResolvedValue({ url: "https://media/source.mp4", expires_in_seconds: 60 });

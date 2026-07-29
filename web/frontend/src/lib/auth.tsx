@@ -35,20 +35,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const mountedRef = useRef(true);
 
   const retrySession = useCallback(async () => {
+    const epoch = api.sessionEpoch;
     setReady(false);
     setRecoveryError(null);
     try {
       const ok = await api.refresh();
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || api.sessionEpoch !== epoch) return;
       setAuthenticated(ok);
       if (!ok) setUser(null);
     } catch {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || api.sessionEpoch !== epoch) return;
       setAuthenticated(false);
       setUser(null);
       setRecoveryError("Session recovery is temporarily unavailable.");
     } finally {
-      if (mountedRef.current) setReady(true);
+      if (mountedRef.current && api.sessionEpoch === epoch) setReady(true);
     }
   }, []);
 
@@ -73,18 +74,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [retrySession]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const nextUser = await api.login(email, password);
+    const pending = api.login(email, password);
+    const epoch = api.sessionEpoch;
+    const nextUser = await pending;
+    if (api.sessionEpoch !== epoch) return;
     setUser(nextUser);
     setAuthenticated(true);
     setRecoveryError(null);
+    setReady(true);
   }, []);
 
   const logout = useCallback(async () => {
+    const pending = api.logout();
+    const epoch = api.sessionEpoch;
     try {
-      await api.logout();
+      await pending;
     } finally {
+      if (api.sessionEpoch !== epoch) return;
       setUser(null);
       setAuthenticated(false);
+      setReady(true);
     }
   }, []);
 

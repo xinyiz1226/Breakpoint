@@ -16,6 +16,13 @@ export interface Project {
   created_at: string;
   updated_at: string;
   has_video: boolean;
+  video_asset_status:
+    | "upload_initiated"
+    | "finalizing"
+    | "uploaded"
+    | "upload_aborted"
+    | "cleanup_pending"
+    | null;
 }
 
 export interface Quota {

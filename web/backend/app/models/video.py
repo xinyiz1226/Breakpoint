@@ -79,6 +79,9 @@ class VideoAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=VideoAssetStatus.UPLOAD_INITIATED,
         nullable=False,
     )
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # S3-compatible multipart upload bookkeeping.
     upload_id: Mapped[str] = mapped_column(String(512), nullable=False)

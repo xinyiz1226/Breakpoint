@@ -88,11 +88,15 @@ export function UploadPanel({
     }
   }
 
-  async function finalizeUpload(request: NonNullable<typeof finalize>) {
+  async function finalizeUpload(
+    request: NonNullable<typeof finalize>,
+    signal?: AbortSignal,
+  ) {
     const result = await api.finalizeUpload(projectId, request.assetId, {
       idempotency_key: request.idempotencyKey,
       parts: request.parts,
-    });
+    }, signal);
+    signal?.throwIfAborted();
     activeUploadRef.current = null;
     if (mountedRef.current) setActiveUpload(null);
     onComplete(result.analysis_job);
@@ -138,7 +142,7 @@ export function UploadPanel({
         parts: completedParts,
       };
       setFinalize(request);
-      await finalizeUpload(request);
+      await finalizeUpload(request, controller.signal);
     } catch (caught) {
       if (
         mountedRef.current &&
@@ -214,7 +218,7 @@ export function UploadPanel({
       {error && (
         <div className="inline-error" role="alert">
           {error}
-          {finalize && <button onClick={() => finalizeUpload(finalize)}>{t("retry")}</button>}
+          {finalize && !abortPending && <button onClick={() => finalizeUpload(finalize)}>{t("retry")}</button>}
           {!finalize && activeUpload && !abortPending && <button onClick={start}>{t("retry")}</button>}
           {activeUpload && <button onClick={cancel}>{abortPending ? t("retry") : t("cancel")}</button>}
         </div>

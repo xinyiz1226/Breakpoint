@@ -49,11 +49,20 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export class ApiClient {
   private accessToken: string | null = null;
-  private refreshPromise: Promise<boolean> | null = null;
+  private authEpoch = 0;
+  private refreshOperation: {
+    epoch: number;
+    controller: AbortController;
+    promise: Promise<boolean>;
+  } | null = null;
   private sessionStateHandler: ((state: "invalidated" | "unavailable") => void) | null = null;
 
   get token(): string | null {
     return this.accessToken;
+  }
+
+  get sessionEpoch(): number {
+    return this.authEpoch;
   }
 
   setToken(token: string | null): void {
@@ -66,18 +75,29 @@ export class ApiClient {
     this.sessionStateHandler = handler;
   }
 
-  private async performRefresh(): Promise<boolean> {
+  private advanceAuthEpoch(clearToken: boolean): number {
+    this.authEpoch += 1;
+    this.refreshOperation?.controller.abort();
+    if (clearToken) this.accessToken = null;
+    return this.authEpoch;
+  }
+
+  private async performRefresh(epoch: number, signal: AbortSignal): Promise<boolean> {
+    if (epoch !== this.authEpoch) return false;
     let response: Response;
     try {
       response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
         method: "POST",
         credentials: "include",
+        signal,
       });
     } catch (error) {
+      if (epoch !== this.authEpoch || signal.aborted) return false;
       this.accessToken = null;
       this.sessionStateHandler?.("unavailable");
       throw error;
     }
+    if (epoch !== this.authEpoch) return false;
     if (response.status === 401) {
       this.accessToken = null;
       this.sessionStateHandler?.("invalidated");
@@ -93,17 +113,21 @@ export class ApiClient {
     try {
       body = (await response.json()) as { access_token: string };
     } catch (error) {
+      if (epoch !== this.authEpoch) return false;
       this.accessToken = null;
       this.sessionStateHandler?.("unavailable");
       throw error;
     }
+    if (epoch !== this.authEpoch) return false;
     this.accessToken = body.access_token;
     return true;
   }
 
   async refresh(): Promise<boolean> {
-    if (this.refreshPromise) return this.refreshPromise;
-    const refresh = () => this.performRefresh();
+    const epoch = this.authEpoch;
+    if (this.refreshOperation?.epoch === epoch) return this.refreshOperation.promise;
+    const controller = new AbortController();
+    const refresh = () => this.performRefresh(epoch, controller.signal);
     const pending =
       typeof navigator !== "undefined" && navigator.locks
         ? new Promise<boolean>((resolve, reject) => {
@@ -119,9 +143,11 @@ export class ApiClient {
           })
         : refresh();
     const result = pending.finally(() => {
-      this.refreshPromise = null;
+      if (this.refreshOperation?.promise === result) {
+        this.refreshOperation = null;
+      }
     });
-    this.refreshPromise = result;
+    this.refreshOperation = { epoch, controller, promise: result };
     return result;
   }
 
@@ -150,26 +176,39 @@ export class ApiClient {
     });
   }
 
-  verifyEmail(token: string, password: string) {
-    return this.request<{ message: string }>("/api/v1/auth/verify-email", {
+  async verifyEmail(token: string, password: string) {
+    const epoch = this.advanceAuthEpoch(true);
+    const result = await this.request<{ message: string }>("/api/v1/auth/verify-email", {
       method: "POST",
       body: JSON.stringify({ token, password }),
-    });
+    }, false);
+    if (epoch !== this.authEpoch) {
+      throw new DOMException("Superseded authentication operation", "AbortError");
+    }
+    return result;
   }
 
   async login(email: string, password: string): Promise<User> {
+    const epoch = this.advanceAuthEpoch(true);
     const result = await this.request<{ access_token: string; user: User }>(
       "/api/v1/auth/login",
       { method: "POST", body: JSON.stringify({ email, password }) },
       false,
     );
+    if (epoch !== this.authEpoch) {
+      throw new DOMException("Superseded authentication operation", "AbortError");
+    }
     this.accessToken = result.access_token;
     return result.user;
   }
 
   async logout(): Promise<void> {
-    await this.request("/api/v1/auth/logout", { method: "POST" }, false);
-    this.accessToken = null;
+    const epoch = this.advanceAuthEpoch(false);
+    try {
+      await this.request("/api/v1/auth/logout", { method: "POST" }, false);
+    } finally {
+      if (epoch === this.authEpoch) this.accessToken = null;
+    }
   }
 
   forgotPassword(email: string) {
@@ -179,11 +218,16 @@ export class ApiClient {
     });
   }
 
-  resetPassword(token: string, password: string) {
-    return this.request<{ message: string }>("/api/v1/auth/reset-password", {
+  async resetPassword(token: string, password: string) {
+    const epoch = this.advanceAuthEpoch(true);
+    const result = await this.request<{ message: string }>("/api/v1/auth/reset-password", {
       method: "POST",
       body: JSON.stringify({ token, new_password: password }),
-    });
+    }, false);
+    if (epoch !== this.authEpoch) {
+      throw new DOMException("Superseded authentication operation", "AbortError");
+    }
+    return result;
   }
 
   listProjects = () => this.request<Project[]>("/api/v1/projects");
@@ -254,10 +298,11 @@ export class ApiClient {
       idempotency_key: string;
       parts: { part_number: number; etag: string }[];
     },
+    signal?: AbortSignal,
   ) =>
     this.request<FinalizeUpload>(
       `/api/v1/projects/${projectId}/uploads/${assetId}/finalize`,
-      { method: "POST", body: JSON.stringify(input) },
+      { method: "POST", body: JSON.stringify(input), signal },
     );
   abortUpload = (projectId: string, assetId: string) =>
     this.request<{ status: "aborted" | "cleanup_pending" }>(

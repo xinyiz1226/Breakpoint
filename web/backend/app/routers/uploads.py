@@ -223,7 +223,14 @@ def initiate_upload(
     project = _get_owned_project(db, project_id, current_user.id, for_update=True)
 
     reusable_asset = project.video_asset
-    if reusable_asset is not None and reusable_asset.status != VideoAssetStatus.UPLOAD_ABORTED:
+    reusable_asset_is_clean = (
+        reusable_asset is not None
+        and reusable_asset.status == VideoAssetStatus.UPLOAD_ABORTED
+        and reusable_asset.analysis_reserved_seconds == 0
+        and reusable_asset.storage_reserved_bytes == 0
+        and reusable_asset.storage_counted_bytes == 0
+    )
+    if reusable_asset is not None and not reusable_asset_is_clean:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Project already has a video"
         )
@@ -306,6 +313,7 @@ def initiate_upload(
     video_asset.upload_expires_at = upload_expires_at
     video_asset.finalize_idempotency_key = None
     video_asset.finalize_request_fingerprint = None
+    video_asset.cancel_requested_at = None
     try:
         db.flush()
     except IntegrityError:
@@ -416,6 +424,11 @@ def abort_upload(
 
     if video_asset.status == VideoAssetStatus.UPLOAD_ABORTED:
         return AbortUploadResponse(status="aborted")
+    if video_asset.status == VideoAssetStatus.FINALIZING:
+        video_asset.cancel_requested_at = video_asset.cancel_requested_at or utcnow()
+        db.commit()
+        response.status_code = status.HTTP_202_ACCEPTED
+        return AbortUploadResponse(status="cleanup_pending")
     if video_asset.status not in (
         VideoAssetStatus.UPLOAD_INITIATED,
         VideoAssetStatus.CLEANUP_PENDING,
@@ -425,16 +438,34 @@ def abort_upload(
             detail="Only an active multipart upload can be aborted",
         )
 
+    video_asset.cancel_requested_at = video_asset.cancel_requested_at or utcnow()
     video_asset.status = VideoAssetStatus.CLEANUP_PENDING
-    task = storage_cleanup_service.get_or_create_cleanup_task(
-        db,
-        project_id=project.id,
-        video_asset_id=video_asset.id,
-        object_key=video_asset.object_key,
-        upload_id=video_asset.upload_id,
-        operation=StorageCleanupOperation.ABORT_MULTIPART,
-        generation=video_asset.cleanup_generation,
-    )
+    task = db.execute(
+        select(StorageCleanupTask)
+        .where(
+            StorageCleanupTask.video_asset_id == video_asset.id,
+            StorageCleanupTask.operation == StorageCleanupOperation.DELETE_OBJECT,
+            StorageCleanupTask.status.in_(
+                (
+                    StorageCleanupStatus.PENDING,
+                    StorageCleanupStatus.RUNNING,
+                    StorageCleanupStatus.FAILED,
+                )
+            ),
+        )
+        .with_for_update()
+    ).scalars().first()
+    if task is None:
+        task = storage_cleanup_service.get_or_create_cleanup_task(
+            db,
+            project_id=project.id,
+            video_asset_id=video_asset.id,
+            object_key=video_asset.object_key,
+            upload_id=video_asset.upload_id,
+            operation=StorageCleanupOperation.ABORT_MULTIPART,
+            generation=video_asset.cleanup_generation,
+        )
+    task.not_before = None
     db.commit()
 
     storage_cleanup_service.claim_and_process(db, task.id, storage)
@@ -625,6 +656,25 @@ def finalize_upload(
     video_asset = _get_owned_video_asset(
         db, project, video_asset_id, for_update=True, populate_existing=True
     )
+
+    if video_asset.cancel_requested_at is not None:
+        video_asset.status = VideoAssetStatus.CLEANUP_PENDING
+        video_asset.cleanup_generation += 1
+        task = storage_cleanup_service.get_or_create_cleanup_task(
+            db,
+            project_id=video_asset.project_id,
+            video_asset_id=video_asset.id,
+            object_key=video_asset.object_key,
+            upload_id=None,
+            operation=StorageCleanupOperation.DELETE_OBJECT,
+            generation=video_asset.cleanup_generation,
+        )
+        db.commit()
+        storage_cleanup_service.claim_and_process(db, task.id, storage)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Upload cancellation was requested",
+        )
 
     if current_project is None or current_project.deleted_at is not None:
         # The project was tombstoned by a concurrent delete while this

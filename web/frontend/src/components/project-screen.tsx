@@ -36,11 +36,21 @@ export function ProjectScreen({ projectId }: { projectId: string }) {
   if (error || !project) {
     return <div className="error-state"><h1>{t("unexpected")}</h1><p>{error}</p><button className="button primary" onClick={load}>{t("tryAgain")}</button></div>;
   }
+  const uploadPending = project.video_asset_status
+    && ["upload_initiated", "finalizing", "cleanup_pending"].includes(
+      project.video_asset_status,
+    );
   return (
     <main className="project-workspace">
       <div className="workspace-title"><span>MATCH ROOM</span><strong>{project.name}</strong></div>
       {job ? (
         <JobProgress projectId={projectId} initial={job} />
+      ) : uploadPending ? (
+        <div className="content-status full">
+          <span className="spinner" />
+          {t("uploadCancellationPending")}
+          <button className="button ghost" onClick={load}>{t("tryAgain")}</button>
+        </div>
       ) : (
         <UploadPanel projectId={projectId} onComplete={setJob} />
       )}

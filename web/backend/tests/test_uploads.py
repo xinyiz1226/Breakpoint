@@ -304,6 +304,120 @@ def test_failed_abort_stays_durable_and_keeps_quota_until_retry_succeeds(
     assert _initiate_upload(client, token, project_id).status_code == 201
 
 
+def test_abort_requested_during_finalize_deletes_object_and_never_queues_analysis(
+    client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    token, project_id = _authenticated_project(
+        client, db_session, email="cancel-finalize@example.com"
+    )
+    initiated = _initiate_upload(client, token, project_id).json()
+    fake_storage.objects[initiated["object_key"]] = ObjectMetadata(
+        size_bytes=DECLARED_SIZE,
+        content_type=CONTENT_TYPE,
+    )
+    abort_responses: list[int] = []
+
+    def abort_while_completion_is_in_flight() -> None:
+        response = client.post(
+            f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+            headers=auth_headers(token),
+        )
+        abort_responses.append(response.status_code)
+
+    fake_storage.on_complete_multipart_upload = abort_while_completion_is_in_flight
+
+    finalized = _finalize_upload(
+        client,
+        token,
+        project_id,
+        initiated["video_asset_id"],
+    )
+
+    assert abort_responses == [202]
+    assert finalized.status_code == 409
+    assert initiated["object_key"] in fake_storage.deleted_object_keys
+    assert (
+        db_session.execute(
+            select(AnalysisJob).where(
+                AnalysisJob.video_asset_id == uuid.UUID(initiated["video_asset_id"])
+            )
+        ).scalar_one_or_none()
+        is None
+    )
+    quota = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota["monthly_analysis_seconds_used"] == 0
+    assert quota["storage_bytes_used"] == 0
+
+
+def test_aborted_project_reports_restartable_upload_state(
+    client: TestClient, db_session: Session
+) -> None:
+    token, project_id = _authenticated_project(
+        client, db_session, email="restart-state@example.com"
+    )
+    initiated = _initiate_upload(client, token, project_id).json()
+    aborted = client.post(
+        f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+        headers=auth_headers(token),
+    )
+    assert aborted.status_code == 200
+
+    project = client.get(
+        f"/api/v1/projects/{project_id}",
+        headers=auth_headers(token),
+    )
+
+    assert project.status_code == 200
+    assert project.json()["has_video"] is False
+    assert project.json()["video_asset_status"] == "upload_aborted"
+
+
+def test_finalize_cancellation_keeps_reservations_until_delete_retry_succeeds(
+    client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    token, project_id = _authenticated_project(
+        client, db_session, email="cancel-finalize-retry@example.com"
+    )
+    initiated = _initiate_upload(client, token, project_id).json()
+    fake_storage.objects[initiated["object_key"]] = ObjectMetadata(
+        size_bytes=DECLARED_SIZE,
+        content_type=CONTENT_TYPE,
+    )
+    fake_storage.fail_next_deletes = 1
+
+    def abort_while_completion_is_in_flight() -> None:
+        response = client.post(
+            f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+            headers=auth_headers(token),
+        )
+        assert response.status_code == 202
+
+    fake_storage.on_complete_multipart_upload = abort_while_completion_is_in_flight
+    finalized = _finalize_upload(
+        client,
+        token,
+        project_id,
+        initiated["video_asset_id"],
+    )
+
+    assert finalized.status_code == 409
+    assert initiated["object_key"] in fake_storage.objects
+    quota = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota["monthly_analysis_seconds_used"] == DECLARED_DURATION
+    assert quota["storage_bytes_used"] == DECLARED_SIZE
+
+    retried = client.post(
+        f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+        headers=auth_headers(token),
+    )
+
+    assert retried.status_code == 200
+    assert initiated["object_key"] not in fake_storage.objects
+    quota = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota["monthly_analysis_seconds_used"] == 0
+    assert quota["storage_bytes_used"] == 0
+
+
 def test_finalize_is_idempotent_with_same_key_and_payload(
     client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
 ) -> None:

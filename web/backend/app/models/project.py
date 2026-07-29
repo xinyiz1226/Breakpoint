@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.enums import VideoAssetStatus
 
 if TYPE_CHECKING:
     from app.models.job import AnalysisJob, ExportJob
@@ -45,4 +46,11 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     @property
     def has_video(self) -> bool:
-        return self.video_asset is not None
+        return (
+            self.video_asset is not None
+            and self.video_asset.status == VideoAssetStatus.UPLOADED
+        )
+
+    @property
+    def video_asset_status(self) -> VideoAssetStatus | None:
+        return self.video_asset.status if self.video_asset is not None else None

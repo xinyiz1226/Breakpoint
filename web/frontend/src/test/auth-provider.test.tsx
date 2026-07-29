@@ -75,4 +75,27 @@ describe("AuthProvider recovery", () => {
 
     await waitFor(() => expect(screen.getByText("signed-out")).toBeInTheDocument());
   });
+
+  it("keeps the newer login when initial refresh completes late", async () => {
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    const delayedRefresh = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockReturnValueOnce(delayedRefresh)
+      .mockResolvedValueOnce(
+        Response.json({ access_token: "account-b", user }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "login" }));
+    expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+    resolveRefresh?.(Response.json({ access_token: "account-a" }));
+
+    await waitFor(() => expect(api.token).toBe("account-b"));
+    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
+  });
 });
