@@ -850,3 +850,79 @@ def test_0008_backfill_normalizes_unassociated_release_without_negative_period(s
             assert rows == [("2025-01-01", 100.0), ("2025-01-01", -100.0)]
     finally:
         engine.dispose()
+
+
+def test_0008_does_not_apply_orphan_release_to_live_associated_reservation(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    january = datetime(2025, 1, 15, tzinfo=timezone.utc)
+    february = datetime(2025, 2, 3, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=100.0,
+            entries=[
+                ("ANALYSIS_RESERVED", 100.0, january, "asset"),
+                ("ANALYSIS_RESERVATION_RELEASED", -100.0, february, "none"),
+            ],
+        )
+    finally:
+        engine.dispose()
+
+    try:
+        _run_alembic(scratch_db_path, "0008")
+    except RuntimeError as exc:
+        assert "Cannot safely migrate negative monthly analysis quota balances" in str(exc)
+    else:
+        pytest.fail("migration consumed an associated live reservation for an orphan release")
+
+
+def test_0008_rejects_negative_associated_reservation_lifecycle(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    february = datetime(2025, 2, 3, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=0.0,
+            entries=[
+                ("ANALYSIS_RESERVATION_RELEASED", -100.0, february, "asset"),
+            ],
+        )
+    finally:
+        engine.dispose()
+
+    try:
+        _run_alembic(scratch_db_path, "0008")
+    except RuntimeError as exc:
+        assert "Cannot safely migrate negative analysis reservation lifecycles" in str(exc)
+    else:
+        pytest.fail("migration accepted a negative associated reservation lifecycle")
+
+
+def test_0008_rejects_associated_release_masked_by_later_reservation(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    february = datetime(2025, 2, 3, tzinfo=timezone.utc)
+    march = datetime(2025, 3, 5, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=100.0,
+            entries=[
+                ("ANALYSIS_RESERVATION_RELEASED", -100.0, february, "asset"),
+                ("ANALYSIS_RESERVED", 100.0, march, "asset"),
+            ],
+        )
+    finally:
+        engine.dispose()
+
+    try:
+        _run_alembic(scratch_db_path, "0008")
+    except RuntimeError as exc:
+        assert "Cannot safely migrate negative analysis reservation lifecycles" in str(exc)
+    else:
+        pytest.fail("later reservation masked an earlier negative associated lifecycle")

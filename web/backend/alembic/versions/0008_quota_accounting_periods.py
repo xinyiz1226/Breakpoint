@@ -81,6 +81,8 @@ def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
 
     asset_id_by_entry_id: dict[Any, Any] = {}
     lifecycle_month_by_asset_id: dict[Any, date | str] = {}
+    reservation_balance_by_asset_id: dict[Any, float] = defaultdict(float)
+    negative_lifecycles: list[tuple[Any, Any, float]] = []
     for row in rows:
         asset_id = row["video_asset_id"]
         if asset_id is None and row["analysis_job_id"] is not None:
@@ -89,10 +91,31 @@ def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
             continue
 
         asset_id_by_entry_id[row["id"]] = asset_id
+        if row["event_type"] in (
+            "ANALYSIS_RESERVED",
+            "ANALYSIS_RESERVATION_RELEASED",
+        ):
+            reservation_balance_by_asset_id[asset_id] += float(
+                row["seconds_delta"] or 0.0
+            )
+            if reservation_balance_by_asset_id[asset_id] < -1e-9:
+                negative_lifecycles.append(
+                    (
+                        asset_id,
+                        row["id"],
+                        reservation_balance_by_asset_id[asset_id],
+                    )
+                )
         if row["event_type"] == "ANALYSIS_RESERVED" and row["seconds_delta"] is not None:
             existing = lifecycle_month_by_asset_id.get(asset_id)
             if existing is None or row["accounting_month"] < existing:
                 lifecycle_month_by_asset_id[asset_id] = row["accounting_month"]
+
+    if negative_lifecycles:
+        raise RuntimeError(
+            "Cannot safely migrate negative analysis reservation lifecycles: "
+            f"{negative_lifecycles}"
+        )
 
     entry_updates = [
         {
@@ -172,6 +195,8 @@ def _normalize_unassociated_negative_analysis_periods(
 
     balance_by_user_month: dict[tuple[Any, date | str], float] = defaultdict(float)
     for row in rows:
+        if row["id"] in associated_entry_ids:
+            continue
         balance_by_user_month[(row["user_id"], row["accounting_month"])] += float(
             row["seconds_delta"] or 0.0
         )
