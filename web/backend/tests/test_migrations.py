@@ -926,3 +926,133 @@ def test_0008_rejects_associated_release_masked_by_later_reservation(scratch_db_
         assert "Cannot safely migrate negative analysis reservation lifecycles" in str(exc)
     else:
         pytest.fail("later reservation masked an earlier negative associated lifecycle")
+
+
+def test_0008_rejects_cross_user_rows_in_same_asset_lifecycle(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    january = datetime(2025, 1, 15, tzinfo=timezone.utc)
+    february = datetime(2025, 2, 3, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        _asset_id, entry_ids = _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=0.0,
+            entries=[
+                ("ANALYSIS_RESERVED", 100.0, january, "asset"),
+                ("ANALYSIS_RESERVATION_RELEASED", -100.0, february, "asset"),
+            ],
+        )
+        other_user_id = uuid.uuid4()
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO users (
+                        id, created_at, updated_at, email, password_hash, role,
+                        is_active, is_verified, quota_monthly_analysis_seconds_override,
+                        quota_max_active_analysis_jobs_override, quota_storage_bytes_override
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :email, :password_hash, :role,
+                        :is_active, :is_verified, NULL, NULL, NULL
+                    )
+                    """
+                ),
+                {
+                    "id": str(other_user_id),
+                    "created_at": february,
+                    "updated_at": february,
+                    "email": f"{other_user_id}@example.com",
+                    "password_hash": "not-a-real-hash",
+                    "role": "USER",
+                    "is_active": True,
+                    "is_verified": True,
+                },
+            )
+            conn.execute(
+                sa.text(
+                    "UPDATE quota_ledger_entries SET user_id = :user_id WHERE id = :entry_id"
+                ),
+                {
+                    "user_id": str(other_user_id),
+                    "entry_id": str(entry_ids[1]),
+                },
+            )
+    finally:
+        engine.dispose()
+
+    try:
+        _run_alembic(scratch_db_path, "0008")
+    except RuntimeError as exc:
+        assert "quota ledger ownership mismatch" in str(exc)
+    else:
+        pytest.fail("migration combined cross-user rows in one asset lifecycle")
+
+
+def test_0008_rejects_cross_user_storage_row_for_asset(scratch_db_path):
+    _run_alembic(scratch_db_path, "0007")
+    january = datetime(2025, 1, 15, tzinfo=timezone.utc)
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        asset_id, _entry_ids = _seed_analysis_lifecycle(
+            engine,
+            live_reserved_seconds=100.0,
+            entries=[
+                ("ANALYSIS_RESERVED", 100.0, january, "asset"),
+            ],
+        )
+        other_user_id = uuid.uuid4()
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO users (
+                        id, created_at, updated_at, email, password_hash, role,
+                        is_active, is_verified, quota_monthly_analysis_seconds_override,
+                        quota_max_active_analysis_jobs_override, quota_storage_bytes_override
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :email, :password_hash, :role,
+                        :is_active, :is_verified, NULL, NULL, NULL
+                    )
+                    """
+                ),
+                {
+                    "id": str(other_user_id),
+                    "created_at": january,
+                    "updated_at": january,
+                    "email": f"{other_user_id}@example.com",
+                    "password_hash": "not-a-real-hash",
+                    "role": "USER",
+                    "is_active": True,
+                    "is_verified": True,
+                },
+            )
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO quota_ledger_entries (
+                        id, user_id, event_type, analysis_job_id, video_asset_id,
+                        seconds_delta, bytes_delta, created_at
+                    ) VALUES (
+                        :id, :user_id, 'STORAGE_RESERVED', NULL, :video_asset_id,
+                        NULL, 1024, :created_at
+                    )
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "user_id": str(other_user_id),
+                    "video_asset_id": str(asset_id),
+                    "created_at": january,
+                },
+            )
+    finally:
+        engine.dispose()
+
+    try:
+        _run_alembic(scratch_db_path, "0008")
+    except RuntimeError as exc:
+        assert "quota ledger ownership mismatch" in str(exc)
+    else:
+        pytest.fail("migration trusted a cross-user storage row for an asset")

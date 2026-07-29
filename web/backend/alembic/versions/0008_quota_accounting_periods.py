@@ -50,12 +50,56 @@ def _month_start_expression(column_name: str, dialect_name: str) -> str:
 
 def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
     """Assign one accounting period to each recoverable analysis lifecycle."""
-    job_asset_by_id = {
-        row.id: row.video_asset_id
+    job_by_id = {
+        row.id: (row.video_asset_id, row.owner_id)
         for row in bind.execute(
-            sa.text("SELECT id, video_asset_id FROM analysis_jobs")
+            sa.text("SELECT id, video_asset_id, owner_id FROM analysis_jobs")
         )
     }
+    asset_owner_by_id = {
+        row.id: row.owner_id
+        for row in bind.execute(sa.text("SELECT id, owner_id FROM video_assets"))
+    }
+    ownership_rows = bind.execute(
+        sa.text(
+            """
+            SELECT id, user_id, analysis_job_id, video_asset_id
+            FROM quota_ledger_entries
+            WHERE analysis_job_id IS NOT NULL OR video_asset_id IS NOT NULL
+            """
+        )
+    ).mappings().all()
+    ownership_mismatches: list[tuple[Any, str]] = []
+    for row in ownership_rows:
+        asset_id = row["video_asset_id"]
+        job_id = row["analysis_job_id"]
+        if job_id is not None:
+            job = job_by_id.get(job_id)
+            if job is None:
+                ownership_mismatches.append((row["id"], "missing analysis job"))
+                continue
+            job_asset_id, job_owner_id = job
+            if row["user_id"] != job_owner_id:
+                ownership_mismatches.append((row["id"], "analysis job owner"))
+            if asset_id is not None and asset_id != job_asset_id:
+                ownership_mismatches.append((row["id"], "analysis job asset"))
+            if asset_id is None:
+                asset_id = job_asset_id
+
+        if asset_id is None:
+            continue
+        asset_owner_id = asset_owner_by_id.get(asset_id)
+        if asset_owner_id is None:
+            ownership_mismatches.append((row["id"], "missing video asset"))
+        elif row["user_id"] != asset_owner_id:
+            ownership_mismatches.append((row["id"], "video asset owner"))
+
+    if ownership_mismatches:
+        raise RuntimeError(
+            "Cannot safely migrate quota ledger ownership mismatch: "
+            f"{ownership_mismatches}"
+        )
+
     rows = bind.execute(
         sa.text(
             """
@@ -79,37 +123,42 @@ def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
         )
     ).mappings().all()
 
-    asset_id_by_entry_id: dict[Any, Any] = {}
-    lifecycle_month_by_asset_id: dict[Any, date | str] = {}
-    reservation_balance_by_asset_id: dict[Any, float] = defaultdict(float)
-    negative_lifecycles: list[tuple[Any, Any, float]] = []
+    lifecycle_key_by_entry_id: dict[Any, tuple[Any, Any]] = {}
+    lifecycle_month_by_key: dict[tuple[Any, Any], date | str] = {}
+    reservation_balance_by_key: dict[tuple[Any, Any], float] = defaultdict(float)
+    negative_lifecycles: list[tuple[tuple[Any, Any], Any, float]] = []
     for row in rows:
         asset_id = row["video_asset_id"]
-        if asset_id is None and row["analysis_job_id"] is not None:
-            asset_id = job_asset_by_id.get(row["analysis_job_id"])
+        job_id = row["analysis_job_id"]
+        if job_id is not None:
+            job = job_by_id[job_id]
+            job_asset_id, _job_owner_id = job
+            if asset_id is None:
+                asset_id = job_asset_id
         if asset_id is None:
             continue
 
-        asset_id_by_entry_id[row["id"]] = asset_id
+        lifecycle_key = (asset_id, row["user_id"])
+        lifecycle_key_by_entry_id[row["id"]] = lifecycle_key
         if row["event_type"] in (
             "ANALYSIS_RESERVED",
             "ANALYSIS_RESERVATION_RELEASED",
         ):
-            reservation_balance_by_asset_id[asset_id] += float(
+            reservation_balance_by_key[lifecycle_key] += float(
                 row["seconds_delta"] or 0.0
             )
-            if reservation_balance_by_asset_id[asset_id] < -1e-9:
+            if reservation_balance_by_key[lifecycle_key] < -1e-9:
                 negative_lifecycles.append(
                     (
-                        asset_id,
+                        lifecycle_key,
                         row["id"],
-                        reservation_balance_by_asset_id[asset_id],
+                        reservation_balance_by_key[lifecycle_key],
                     )
                 )
         if row["event_type"] == "ANALYSIS_RESERVED" and row["seconds_delta"] is not None:
-            existing = lifecycle_month_by_asset_id.get(asset_id)
+            existing = lifecycle_month_by_key.get(lifecycle_key)
             if existing is None or row["accounting_month"] < existing:
-                lifecycle_month_by_asset_id[asset_id] = row["accounting_month"]
+                lifecycle_month_by_key[lifecycle_key] = row["accounting_month"]
 
     if negative_lifecycles:
         raise RuntimeError(
@@ -120,11 +169,11 @@ def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
     entry_updates = [
         {
             "id": row["id"],
-            "accounting_month": lifecycle_month_by_asset_id[asset_id_by_entry_id[row["id"]]],
+            "accounting_month": lifecycle_month_by_key[lifecycle_key_by_entry_id[row["id"]]],
         }
         for row in rows
-        if row["id"] in asset_id_by_entry_id
-        and asset_id_by_entry_id[row["id"]] in lifecycle_month_by_asset_id
+        if row["id"] in lifecycle_key_by_entry_id
+        and lifecycle_key_by_entry_id[row["id"]] in lifecycle_month_by_key
     ]
     if entry_updates:
         bind.execute(
@@ -140,7 +189,7 @@ def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
 
     live_asset_updates = [
         {"id": asset_id, "accounting_month": accounting_month}
-        for asset_id, accounting_month in lifecycle_month_by_asset_id.items()
+        for (asset_id, _user_id), accounting_month in lifecycle_month_by_key.items()
     ]
     if live_asset_updates:
         bind.execute(
@@ -156,7 +205,7 @@ def _backfill_analysis_lifecycle_months(bind: sa.engine.Connection) -> None:
 
     _normalize_unassociated_negative_analysis_periods(
         bind,
-        associated_entry_ids=set(asset_id_by_entry_id),
+        associated_entry_ids=set(lifecycle_key_by_entry_id),
     )
 
 
