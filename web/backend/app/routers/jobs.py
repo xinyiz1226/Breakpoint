@@ -113,7 +113,7 @@ def _analysis_job(
     return job
 
 
-def _lock_live_export_source(
+def _lock_live_source(
     db: Session, project_id: uuid.UUID, owner_id: uuid.UUID
 ) -> VideoAsset:
     asset = db.execute(
@@ -293,7 +293,8 @@ def update_rally(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RallyEdit:
-    _project(db, project_id, current_user.id)
+    _lock_project(db, project_id, current_user.id)
+    _lock_live_source(db, project_id, current_user.id)
     rally = db.execute(
         select(Rally)
         .join(AnalysisJob, Rally.analysis_job_id == AnalysisJob.id)
@@ -327,7 +328,7 @@ def create_export(
         select(User).where(User.id == current_user.id).with_for_update()
     ).scalar_one()
     _lock_project(db, project_id, current_user.id)
-    _lock_live_export_source(db, project_id, current_user.id)
+    _lock_live_source(db, project_id, current_user.id)
     _require_no_active_export(db, project_id)
     analysis = _analysis_job(db, project_id, current_user.id)
     if analysis.status != JobStatus.SUCCEEDED:
@@ -449,7 +450,7 @@ def retry_export(
         select(User).where(User.id == current_user.id).with_for_update()
     ).scalar_one()
     _lock_project(db, project_id, current_user.id)
-    _lock_live_export_source(db, project_id, current_user.id)
+    _lock_live_source(db, project_id, current_user.id)
     _require_no_active_export(db, project_id, excluding=export_job_id)
     job = db.execute(
         select(ExportJob)

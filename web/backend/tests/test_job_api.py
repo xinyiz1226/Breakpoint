@@ -14,6 +14,7 @@ from app.models.job import AnalysisJob, ExportJob
 from app.models.project import Project
 from app.models.rally import Rally, RallyEdit
 from app.models.video import VideoAsset
+from app.security import create_access_token
 from app.services.job_events import iter_job_events
 from tests.conftest import auth_headers, create_user, login
 
@@ -351,3 +352,49 @@ def test_export_retry_requires_live_unexpired_source(
     assert response.status_code == 409
     db_session.refresh(export)
     assert export.status == JobStatus.FAILED
+
+
+def test_expired_source_rejects_rally_patch_without_changing_edit(
+    client: TestClient,
+    db_session: Session,
+    test_settings,
+) -> None:
+    project, analysis = _project_with_rallies(
+        db_session,
+        email="expired-rally-edit@example.com",
+    )
+    analysis.video_asset.status = VideoAssetStatus.SOURCE_EXPIRED
+    analysis.video_asset.source_expired_at = utcnow()
+    db_session.commit()
+    token = create_access_token(
+        subject=str(project.owner_id),
+        role="user",
+        secret_key=test_settings.jwt_secret_key,
+        algorithm=test_settings.jwt_algorithm,
+        ttl_minutes=test_settings.access_token_ttl_minutes,
+    )
+    headers = auth_headers(token)
+    before_response = client.get(
+        f"/api/v1/projects/{project.id}/rallies",
+        headers=headers,
+    )
+    assert before_response.status_code == 200
+    before = before_response.json()[0]
+
+    patch_response = client.patch(
+        f"/api/v1/projects/{project.id}/rallies/{before['id']}",
+        headers=headers,
+        json={
+            "included": False,
+            "adjusted_start": 12,
+            "adjusted_end": 18,
+        },
+    )
+    after_response = client.get(
+        f"/api/v1/projects/{project.id}/rallies",
+        headers=headers,
+    )
+
+    assert patch_response.status_code == 409
+    assert after_response.status_code == 200
+    assert after_response.json()[0]["edit"] == before["edit"]
