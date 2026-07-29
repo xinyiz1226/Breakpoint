@@ -50,6 +50,7 @@ async function readJson<T>(response: Response): Promise<T> {
 export class ApiClient {
   private accessToken: string | null = null;
   private refreshPromise: Promise<boolean> | null = null;
+  private sessionStateHandler: ((state: "invalidated" | "unavailable") => void) | null = null;
 
   get token(): string | null {
     return this.accessToken;
@@ -59,16 +60,43 @@ export class ApiClient {
     this.accessToken = token;
   }
 
+  setSessionStateHandler(
+    handler: ((state: "invalidated" | "unavailable") => void) | null,
+  ): void {
+    this.sessionStateHandler = handler;
+  }
+
   private async performRefresh(): Promise<boolean> {
-    const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!response.ok) {
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
       this.accessToken = null;
+      this.sessionStateHandler?.("unavailable");
+      throw error;
+    }
+    if (response.status === 401) {
+      this.accessToken = null;
+      this.sessionStateHandler?.("invalidated");
       return false;
     }
-    const body = (await response.json()) as { access_token: string };
+    if (!response.ok) {
+      this.accessToken = null;
+      this.sessionStateHandler?.("unavailable");
+      await readJson<unknown>(response);
+      return false;
+    }
+    let body: { access_token: string };
+    try {
+      body = (await response.json()) as { access_token: string };
+    } catch (error) {
+      this.accessToken = null;
+      this.sessionStateHandler?.("unavailable");
+      throw error;
+    }
     this.accessToken = body.access_token;
     return true;
   }
@@ -230,6 +258,11 @@ export class ApiClient {
     this.request<FinalizeUpload>(
       `/api/v1/projects/${projectId}/uploads/${assetId}/finalize`,
       { method: "POST", body: JSON.stringify(input) },
+    );
+  abortUpload = (projectId: string, assetId: string) =>
+    this.request<{ status: "aborted" | "cleanup_pending" }>(
+      `/api/v1/projects/${projectId}/uploads/${assetId}/abort`,
+      { method: "POST" },
     );
 }
 

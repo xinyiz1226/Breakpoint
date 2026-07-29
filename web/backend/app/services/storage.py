@@ -114,6 +114,21 @@ class S3ObjectStorage:
             region_name=settings.s3_region,
             config=Config(signature_version="s3v4", s3={"addressing_style": addressing_style}),
         )
+        self._presign_client = (
+            boto3.client(
+                "s3",
+                endpoint_url=settings.s3_browser_endpoint_url,
+                aws_access_key_id=settings.s3_access_key,
+                aws_secret_access_key=settings.s3_secret_key,
+                region_name=settings.s3_region,
+                config=Config(
+                    signature_version="s3v4",
+                    s3={"addressing_style": addressing_style},
+                ),
+            )
+            if settings.s3_browser_endpoint_url
+            else self._client
+        )
 
     def generate_object_key(self, *, project_id: uuid.UUID, filename: str) -> str:
         suffix = PurePosixPath(filename).suffix.lower()
@@ -132,7 +147,7 @@ class S3ObjectStorage:
     ) -> list[tuple[int, str, int]]:
         urls: list[tuple[int, str, int]] = []
         for part_number, length in enumerate(part_lengths, start=1):
-            url = self._client.generate_presigned_url(
+            url = self._presign_client.generate_presigned_url(
                 "upload_part",
                 Params={
                     "Bucket": self._bucket,
@@ -218,7 +233,7 @@ class S3ObjectStorage:
         )
 
     def generate_presigned_get_url(self, *, object_key: str, expires_in_seconds: int) -> str:
-        return self._client.generate_presigned_url(
+        return self._presign_client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self._bucket, "Key": object_key},
             ExpiresIn=expires_in_seconds,

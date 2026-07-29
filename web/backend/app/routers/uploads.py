@@ -33,7 +33,7 @@ import uuid
 from datetime import timedelta
 
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -58,6 +58,7 @@ from app.models.video import VideoAsset
 from app.schemas.job import AnalysisJobRead
 from app.schemas.video import (
     ALLOWED_VIDEO_CONTENT_TYPES,
+    AbortUploadResponse,
     FinalizeUploadRequest,
     FinalizeUploadResponse,
     PartUploadUrl,
@@ -196,6 +197,7 @@ def _abort_and_queue_object_cleanup(
         operation=StorageCleanupOperation.DELETE_OBJECT,
         generation=video_asset.cleanup_generation,
     )
+    task.not_before = None
     db.commit()
 
     storage_cleanup_service.claim_and_process(db, task.id, storage)
@@ -220,7 +222,8 @@ def initiate_upload(
     locked_user = _lock_user_for_update(db, current_user.id)
     project = _get_owned_project(db, project_id, current_user.id, for_update=True)
 
-    if project.video_asset is not None:
+    reusable_asset = project.video_asset
+    if reusable_asset is not None and reusable_asset.status != VideoAssetStatus.UPLOAD_ABORTED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Project already has a video"
         )
@@ -280,20 +283,29 @@ def initiate_upload(
     upload_id = storage.create_multipart_upload(object_key=object_key, content_type=payload.content_type)
 
     upload_expires_at = utcnow() + timedelta(hours=settings.multipart_upload_ttl_hours)
-    video_asset = VideoAsset(
-        project_id=project.id,
-        owner_id=current_user.id,
-        object_key=object_key,
-        original_filename=payload.filename,
-        content_type=payload.content_type,
-        declared_size_bytes=payload.size_bytes,
-        declared_duration_seconds=payload.duration_seconds,
-        status=VideoAssetStatus.UPLOAD_INITIATED,
-        upload_id=upload_id,
-        part_count=payload.part_count,
-        upload_expires_at=upload_expires_at,
-    )
-    db.add(video_asset)
+    if reusable_asset is None:
+        video_asset = VideoAsset(project_id=project.id, owner_id=current_user.id)
+        db.add(video_asset)
+    else:
+        video_asset = reusable_asset
+        video_asset.cleanup_generation += 1
+
+    video_asset.object_key = object_key
+    video_asset.original_filename = payload.filename
+    video_asset.content_type = payload.content_type
+    video_asset.declared_size_bytes = payload.size_bytes
+    video_asset.declared_duration_seconds = payload.duration_seconds
+    video_asset.actual_size_bytes = None
+    video_asset.duration_seconds = None
+    video_asset.duration_status = None
+    video_asset.retention_expires_at = None
+    video_asset.preview_object_key = None
+    video_asset.status = VideoAssetStatus.UPLOAD_INITIATED
+    video_asset.upload_id = upload_id
+    video_asset.part_count = payload.part_count
+    video_asset.upload_expires_at = upload_expires_at
+    video_asset.finalize_idempotency_key = None
+    video_asset.finalize_request_fingerprint = None
     try:
         db.flush()
     except IntegrityError:
@@ -384,6 +396,54 @@ def initiate_upload(
         ],
         expires_in_seconds=settings.presigned_url_ttl_seconds,
     )
+
+
+@router.post(
+    "/uploads/{video_asset_id}/abort",
+    response_model=AbortUploadResponse,
+)
+def abort_upload(
+    project_id: uuid.UUID,
+    video_asset_id: uuid.UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: ObjectStorage = Depends(get_storage),
+) -> AbortUploadResponse:
+    _lock_user_for_update(db, current_user.id)
+    project = _get_owned_project(db, project_id, current_user.id, for_update=True)
+    video_asset = _get_owned_video_asset(db, project, video_asset_id, for_update=True)
+
+    if video_asset.status == VideoAssetStatus.UPLOAD_ABORTED:
+        return AbortUploadResponse(status="aborted")
+    if video_asset.status not in (
+        VideoAssetStatus.UPLOAD_INITIATED,
+        VideoAssetStatus.CLEANUP_PENDING,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only an active multipart upload can be aborted",
+        )
+
+    video_asset.status = VideoAssetStatus.CLEANUP_PENDING
+    task = storage_cleanup_service.get_or_create_cleanup_task(
+        db,
+        project_id=project.id,
+        video_asset_id=video_asset.id,
+        object_key=video_asset.object_key,
+        upload_id=video_asset.upload_id,
+        operation=StorageCleanupOperation.ABORT_MULTIPART,
+        generation=video_asset.cleanup_generation,
+    )
+    db.commit()
+
+    storage_cleanup_service.claim_and_process(db, task.id, storage)
+    db.expire_all()
+    completed_task = db.get(StorageCleanupTask, task.id)
+    if completed_task is not None and completed_task.status == StorageCleanupStatus.COMPLETED:
+        return AbortUploadResponse(status="aborted")
+    response.status_code = status.HTTP_202_ACCEPTED
+    return AbortUploadResponse(status="cleanup_pending")
 
 
 def _load_finalize_response(db: Session, video_asset: VideoAsset) -> FinalizeUploadResponse:

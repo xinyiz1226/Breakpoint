@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,6 +54,10 @@ class UploadInitiateResponse(BaseModel):
     upload_id: str
     part_urls: list[PartUploadUrl]
     expires_in_seconds: int
+
+
+class AbortUploadResponse(BaseModel):
+    status: Literal["aborted", "cleanup_pending"]
 
 
 class CompletedPart(BaseModel):

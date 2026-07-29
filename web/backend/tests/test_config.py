@@ -22,3 +22,17 @@ def test_upload_and_duration_caps_are_env_configurable(monkeypatch: pytest.Monke
 
     assert settings.max_upload_size_bytes == 5 * 1024 * 1024 * 1024
     assert settings.max_video_duration_seconds == 7200
+
+
+def test_browser_storage_endpoint_is_independently_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BREAKPOINT_S3_ENDPOINT_URL", "http://minio:9000")
+    monkeypatch.setenv(
+        "BREAKPOINT_S3_BROWSER_ENDPOINT_URL", "http://localhost:9000"
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.s3_endpoint_url == "http://minio:9000"
+    assert settings.s3_browser_endpoint_url == "http://localhost:9000"

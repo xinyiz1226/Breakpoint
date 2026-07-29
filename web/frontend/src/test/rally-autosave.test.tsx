@@ -1,7 +1,7 @@
 import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReviewStudio } from "@/components/review-studio";
 import { api } from "@/lib/api";
 import { I18nProvider } from "@/lib/i18n";
@@ -35,6 +35,10 @@ function setup() {
 }
 
 describe("rally editing", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
   it("debounces include edits and surfaces the saved state", async () => {
     setup();
     const checkbox = await screen.findByRole("checkbox");
@@ -116,5 +120,52 @@ describe("rally editing", () => {
     expect(vi.mocked(api.updateRally).mock.invocationCallOrder[0]).toBeLessThan(
       createExport.mock.invocationCallOrder[0] ?? Infinity,
     );
+  });
+
+  it("freezes every rally edit until delayed export creation returns", async () => {
+    const user = userEvent.setup();
+    setup();
+    let resolveExport: ((job: Awaited<ReturnType<typeof api.createExport>>) => void) | undefined;
+    vi.spyOn(api, "createExport").mockImplementation(
+      () => new Promise((resolve) => {
+        resolveExport = resolve;
+      }),
+    );
+    const exportButton = await screen.findByRole("button", { name: "Create highlight reel" });
+
+    await user.click(exportButton);
+    expect(api.createExport).toHaveBeenCalled();
+    const checkbox = screen.getByRole("checkbox");
+    const startSlider = screen.getByLabelText(/Start/);
+    const includeAll = screen.getByRole("button", { name: "Include all" });
+    expect(checkbox).toBeDisabled();
+    expect(startSlider).toBeDisabled();
+    expect(includeAll).toBeDisabled();
+
+    fireEvent.click(checkbox);
+    fireEvent.change(startSlider, { target: { value: "12" } });
+    fireEvent.click(includeAll);
+    expect(api.updateRally).not.toHaveBeenCalled();
+    expect(checkbox).toBeChecked();
+
+    await act(async () => {
+      resolveExport?.({
+        id: "export-delayed",
+        project_id: "project-1",
+        status: "queued",
+        progress: 0,
+        current_step: null,
+        event_version: 1,
+        cancel_requested_at: null,
+        selection_snapshot: [{ rally_id: "rally-1", start: 10, end: 20 }],
+        output_object_key: null,
+        output_expires_at: null,
+        failure_summary: null,
+        created_at: "2026-07-29T00:00:00Z",
+        started_at: null,
+        finished_at: null,
+      });
+      await Promise.resolve();
+    });
   });
 });

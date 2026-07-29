@@ -177,11 +177,13 @@ function MatchMap({
 function TrimEditor({
   rally,
   saveState,
+  disabled,
   onEdit,
   onRetry,
 }: {
   rally: Rally;
   saveState: SaveState;
+  disabled: boolean;
   onEdit: (edit: RallyEdit) => void;
   onRetry: () => void;
 }) {
@@ -199,19 +201,20 @@ function TrimEditor({
       </div>
       <label>
         <span>{t("start")} <b>{formatTime(range.start, true)}</b></span>
-        <input type="range" min={rally.start} max={rally.end} step=".1" value={range.start} onChange={change("start")} />
+        <input type="range" min={rally.start} max={rally.end} step=".1" value={range.start} onChange={change("start")} disabled={disabled} />
       </label>
       <label>
         <span>{t("end")} <b>{formatTime(range.end, true)}</b></span>
-        <input type="range" min={rally.start} max={rally.end} step=".1" value={range.end} onChange={change("end")} />
+        <input type="range" min={rally.start} max={rally.end} step=".1" value={range.end} onChange={change("end")} disabled={disabled} />
       </label>
       <div className="trim-actions">
         <button
+          disabled={disabled}
           onClick={() => onEdit({ ...rally.edit, adjusted_start: null, adjusted_end: null })}
         >
           {t("reset")}
         </button>
-        {saveState === "error" && <button onClick={onRetry}>{t("retrySave")}</button>}
+        {saveState === "error" && <button onClick={onRetry} disabled={disabled}>{t("retrySave")}</button>}
       </div>
     </div>
   );
@@ -221,10 +224,12 @@ function ExportPanel({
   projectId,
   includedCount,
   flushPendingSaves,
+  onCreatingChange,
 }: {
   projectId: string;
   includedCount: number;
   flushPendingSaves: () => Promise<boolean>;
+  onCreatingChange: (locked: boolean) => void;
 }) {
   const { t } = useI18n();
   const storageKey = `breakpoint-export:${projectId}`;
@@ -264,6 +269,7 @@ function ExportPanel({
   }, [jobId, jobStatus, projectId, t]);
 
   async function create() {
+    onCreatingChange(true);
     setBusy(true);
     setError(null);
     try {
@@ -277,6 +283,7 @@ function ExportPanel({
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : t("unexpected"));
     } finally {
+      onCreatingChange(false);
       setBusy(false);
     }
   }
@@ -344,6 +351,8 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
+  const [exportLocked, setExportLocked] = useState(false);
+  const exportLockRef = useRef(false);
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const revisions = useRef(new Map<string, number>());
   const savedRevisions = useRef(new Map<string, number>());
@@ -423,6 +432,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   function edit(id: string, nextEdit: RallyEdit) {
+    if (exportLockRef.current) return;
     const revision = (revisions.current.get(id) ?? 0) + 1;
     revisions.current.set(id, revision);
     setRallies((current) => updateRally(current, id, nextEdit));
@@ -452,6 +462,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
   }, [save]);
 
   function batch(mode: "all" | "recommended" | "none") {
+    if (exportLockRef.current) return;
     for (const rally of rallyRef.current) {
       const next =
         mode === "recommended"
@@ -463,6 +474,10 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
 
   const selected = rallies.find((rally) => rally.id === selectedId) ?? null;
   const includedCount = rallies.filter((rally) => rally.edit.included).length;
+  const setExportLock = (locked: boolean) => {
+    exportLockRef.current = locked;
+    setExportLocked(locked);
+  };
   const select = (rally: Rally, play = true) => {
     setSelectedId(rally.id);
     setSeek({ time: effectiveRange(rally).start, play, key: Date.now() });
@@ -506,9 +521,9 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
             <span>{formatTime(currentTime)}</span>
           </div>
           <div className="batch-actions">
-            <button onClick={() => batch("all")}>{t("includeAll")}</button>
-            <button onClick={() => batch("recommended")}>{t("recommended")}</button>
-            <button onClick={() => batch("none")}>{t("excludeAll")}</button>
+            <button onClick={() => batch("all")} disabled={exportLocked}>{t("includeAll")}</button>
+            <button onClick={() => batch("recommended")} disabled={exportLocked}>{t("recommended")}</button>
+            <button onClick={() => batch("none")} disabled={exportLocked}>{t("excludeAll")}</button>
           </div>
           <div className="rally-list">
             {rallies.map((rally) => {
@@ -529,6 +544,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
                     <input
                       type="checkbox"
                       checked={rally.edit.included}
+                      disabled={exportLocked}
                       onChange={() => edit(rally.id, { ...rally.edit, included: !rally.edit.included })}
                     />
                     <span>{rally.edit.included ? t("keep") : t("cut")}</span>
@@ -537,8 +553,13 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
                     <TrimEditor
                       rally={rally}
                       saveState={saveStates[rally.id] ?? "saved"}
+                      disabled={exportLocked}
                       onEdit={(next) => edit(rally.id, next)}
-                      onRetry={() => save(rally, revisions.current.get(rally.id) ?? 0)}
+                      onRetry={() => {
+                        if (!exportLockRef.current) {
+                          void save(rally, revisions.current.get(rally.id) ?? 0);
+                        }
+                      }}
                     />
                   )}
                 </article>
@@ -549,6 +570,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
             projectId={projectId}
             includedCount={includedCount}
             flushPendingSaves={flushPendingSaves}
+            onCreatingChange={setExportLock}
           />
         </aside>
       </div>

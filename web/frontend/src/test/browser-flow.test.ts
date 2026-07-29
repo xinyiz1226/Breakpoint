@@ -58,7 +58,9 @@ describe("mocked browser product flow", () => {
       onProgress(blob.size);
       return "etag";
     };
-    const parts = await uploadMultipart(new Blob(["game"]), initiated.part_urls, vi.fn(), uploader);
+    const parts = await uploadMultipart(new Blob(["game"]), initiated.part_urls, vi.fn(), {
+      upload: uploader,
+    });
     const finalized = await client.finalizeUpload(project.id, initiated.video_asset_id, {
       idempotency_key: "flow-key",
       parts,

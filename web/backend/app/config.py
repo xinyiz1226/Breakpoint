@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     # Object storage (MinIO / S3-compatible)
     s3_endpoint_url: str = "http://localhost:9000"
+    s3_browser_endpoint_url: str | None = None
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "breakpoint-videos"

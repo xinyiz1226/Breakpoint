@@ -25,6 +25,7 @@ Open `http://localhost:3000`. Mailpit verification and reset messages are at
 | Variable | Required | Description |
 | --- | --- | --- |
 | `NEXT_PUBLIC_API_URL` | Yes in deployment | Public browser-reachable FastAPI origin, without a trailing slash. Defaults to `http://localhost:8000`. |
+| `BREAKPOINT_S3_BROWSER_ENDPOINT_URL` | Yes when API and browser use different storage hosts | Browser-reachable S3/MinIO origin used by the API while generating signatures. Compose defaults to `http://localhost:9000`; do not rewrite signed URLs after generation. |
 
 The API must allow the frontend origin with credentials. Its refresh cookie
 must be `Secure` in HTTPS deployments and may be insecure only for local HTTP
@@ -49,6 +50,9 @@ For a real deployment, set `NEXT_PUBLIC_API_URL` at image build time, configure
 `BREAKPOINT_CORS_ALLOW_ORIGINS` and `BREAKPOINT_APP_BASE_URL` to the public
 frontend HTTPS origin, keep `BREAKPOINT_REFRESH_COOKIE_SECURE=true`, and apply
 equivalent storage CORS at the object-storage provider.
+Keep `BREAKPOINT_S3_ENDPOINT_URL` pointed at the API/worker network endpoint
+(for Compose, `http://minio:9000`) and set
+`BREAKPOINT_S3_BROWSER_ENDPOINT_URL` to the browser-reachable storage origin.
 
 ## Quality checks
 

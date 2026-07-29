@@ -59,16 +59,51 @@ export type PartUploader = (
   part: UploadPartUrl,
   blob: Blob,
   onProgress: (loaded: number) => void,
+  signal?: AbortSignal,
 ) => Promise<string>;
 
-export const uploadPartWithXhr: PartUploader = (part, blob, onProgress) =>
+function abortError(): DOMException {
+  return new DOMException("Upload cancelled", "AbortError");
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
+}
+
+function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      window.clearTimeout(timer);
+      reject(abortError());
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+export const uploadPartWithXhr: PartUploader = (part, blob, onProgress, signal) =>
   new Promise((resolve, reject) => {
+    throwIfAborted(signal);
     const request = new XMLHttpRequest();
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    const abort = () => request.abort();
     request.open("PUT", part.url);
     request.setRequestHeader("Content-Type", "application/octet-stream");
     request.upload.onprogress = (event) => onProgress(event.loaded);
-    request.onerror = () => reject(new Error(`Part ${part.part_number} network error`));
+    request.onerror = () => {
+      cleanup();
+      reject(new Error(`Part ${part.part_number} network error`));
+    };
+    request.onabort = () => {
+      cleanup();
+      reject(abortError());
+    };
     request.onload = () => {
+      cleanup();
       if (request.status < 200 || request.status >= 300) {
         reject(new Error(`Part ${part.part_number} failed with ${request.status}`));
         return;
@@ -81,6 +116,7 @@ export const uploadPartWithXhr: PartUploader = (part, blob, onProgress) =>
       onProgress(blob.size);
       resolve(etag);
     };
+    signal?.addEventListener("abort", abort, { once: true });
     request.send(blob);
   });
 
@@ -89,28 +125,46 @@ async function retryPart(
   blob: Blob,
   upload: PartUploader,
   onProgress: (loaded: number) => void,
+  signal?: AbortSignal,
 ): Promise<string> {
   let lastError: Error = new Error("Upload failed");
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    throwIfAborted(signal);
     try {
-      return await upload(part, blob, onProgress);
+      return await upload(part, blob, onProgress, signal);
     } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        throw abortError();
+      }
       lastError = error instanceof Error ? error : new Error("Upload failed");
       if (attempt < MAX_ATTEMPTS) {
-        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (attempt - 1)));
+        await abortableDelay(250 * 2 ** (attempt - 1), signal);
       }
     }
   }
   throw lastError;
 }
 
+export interface UploadMultipartOptions {
+  upload?: PartUploader;
+  concurrency?: number;
+  signal?: AbortSignal;
+  completedParts?: Map<number, string>;
+}
+
 export async function uploadMultipart(
   file: Blob,
   parts: UploadPartUrl[],
   onProgress: (progress: UploadProgress) => void,
-  upload: PartUploader = uploadPartWithXhr,
-  concurrency = 3,
+  options: UploadMultipartOptions = {},
 ): Promise<{ part_number: number; etag: string }[]> {
+  const {
+    upload = uploadPartWithXhr,
+    concurrency = 3,
+    signal,
+    completedParts = new Map<number, string>(),
+  } = options;
+  throwIfAborted(signal);
   const offsets = new Map<number, number>();
   let offset = 0;
   for (const part of parts) {
@@ -122,28 +176,45 @@ export async function uploadMultipart(
   }
 
   const loaded = new Map<number, number>();
+  for (const part of parts) {
+    if (completedParts.has(part.part_number)) {
+      loaded.set(part.part_number, part.content_length_bytes);
+    }
+  }
   const report = () => {
     const uploadedBytes = [...loaded.values()].reduce((sum, value) => sum + value, 0);
     onProgress({ uploadedBytes, totalBytes: file.size, ratio: uploadedBytes / file.size });
   };
-  const queue = [...parts];
-  const results: { part_number: number; etag: string }[] = [];
+  report();
+  const queue = parts.filter((part) => !completedParts.has(part.part_number));
   const worker = async () => {
     while (queue.length) {
+      throwIfAborted(signal);
       const part = queue.shift();
       if (!part) return;
       const start = offsets.get(part.part_number);
       if (start === undefined) throw new Error("Invalid part plan");
       const blob = file.slice(start, start + part.content_length_bytes);
-      const etag = await retryPart(part, blob, upload, (bytes) => {
-        loaded.set(part.part_number, bytes);
-        report();
-      });
-      results.push({ part_number: part.part_number, etag });
+      const etag = await retryPart(
+        part,
+        blob,
+        upload,
+        (bytes) => {
+          loaded.set(part.part_number, bytes);
+          report();
+        },
+        signal,
+      );
+      throwIfAborted(signal);
+      completedParts.set(part.part_number, etag);
     }
   };
   await Promise.all(
     Array.from({ length: Math.min(concurrency, parts.length) }, () => worker()),
   );
-  return results.sort((a, b) => a.part_number - b.part_number);
+  return parts.map((part) => {
+    const etag = completedParts.get(part.part_number);
+    if (!etag) throw new Error(`Part ${part.part_number} did not complete`);
+    return { part_number: part.part_number, etag };
+  });
 }

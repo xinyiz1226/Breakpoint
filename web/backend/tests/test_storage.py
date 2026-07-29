@@ -125,6 +125,7 @@ def test_generate_presigned_part_urls_binds_content_length_per_part(storage: S3O
     """
     stub = _StubClient()
     storage._client = stub
+    storage._presign_client = stub
 
     part_lengths = [5 * 1024 * 1024, 3 * 1024 * 1024]
     urls = storage.generate_presigned_part_urls(
@@ -168,3 +169,48 @@ def test_abort_multipart_upload_reraises_other_client_errors(storage: S3ObjectSt
     with pytest.raises(ClientError) as excinfo:
         storage.abort_multipart_upload(object_key="projects/x/source/y.mp4", upload_id="upload-1")
     assert excinfo.value.response["Error"]["Code"] == "AccessDenied"
+
+
+def test_presigned_urls_use_browser_endpoint_without_rewriting_signatures(monkeypatch) -> None:
+    clients = []
+
+    class _EndpointClient:
+        def __init__(self, endpoint_url: str) -> None:
+            self.endpoint_url = endpoint_url
+
+        def generate_presigned_url(self, method: str, Params: dict, ExpiresIn: int) -> str:
+            return (
+                f"{self.endpoint_url}/breakpoint-videos/{Params['Key']}"
+                f"?method={method}&signature=for-{self.endpoint_url}"
+            )
+
+    def client_factory(_service: str, *, endpoint_url: str, **_kwargs):
+        client = _EndpointClient(endpoint_url)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("app.services.storage.boto3.client", client_factory)
+    storage = S3ObjectStorage(
+        Settings(
+            s3_endpoint_url="http://minio:9000",
+            s3_browser_endpoint_url="http://localhost:9000",
+        )
+    )
+
+    get_url = storage.generate_presigned_get_url(
+        object_key="projects/x/source/y.mp4", expires_in_seconds=60
+    )
+    part_url = storage.generate_presigned_part_urls(
+        object_key="projects/x/source/y.mp4",
+        upload_id="upload-1",
+        part_lengths=[8],
+        expires_in_seconds=60,
+    )[0][1]
+
+    assert [client.endpoint_url for client in clients] == [
+        "http://minio:9000",
+        "http://localhost:9000",
+    ]
+    assert get_url.startswith("http://localhost:9000/")
+    assert part_url.startswith("http://localhost:9000/")
+    assert "signature=for-http://localhost:9000" in get_url

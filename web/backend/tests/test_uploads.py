@@ -221,6 +221,89 @@ def test_initiate_and_finalize_upload_creates_queued_analysis_job(
     assert body["analysis_job"]["status"] == "queued"
 
 
+def test_owner_can_abort_multipart_upload_and_restart_same_project(
+    client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    token, project_id = _authenticated_project(
+        client, db_session, email="abort-owner@example.com"
+    )
+    initiated = _initiate_upload(client, token, project_id).json()
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"status": "aborted"}
+    assert initiated["upload_id"] in fake_storage.aborted_upload_ids
+    quota = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota["monthly_analysis_seconds_used"] == 0
+    assert quota["storage_bytes_used"] == 0
+    restarted = _initiate_upload(client, token, project_id)
+    assert restarted.status_code == 201, restarted.text
+
+
+def test_abort_upload_is_owner_scoped(
+    client: TestClient, db_session: Session
+) -> None:
+    owner_token, project_id = _authenticated_project(
+        client, db_session, email="abort-scope-owner@example.com"
+    )
+    initiated = _initiate_upload(client, owner_token, project_id).json()
+    create_user(
+        db_session,
+        email="abort-scope-other@example.com",
+        password="password123",
+    )
+    other_token = login(
+        client,
+        email="abort-scope-other@example.com",
+        password="password123",
+    )
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+        headers=auth_headers(other_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_failed_abort_stays_durable_and_keeps_quota_until_retry_succeeds(
+    client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
+) -> None:
+    token, project_id = _authenticated_project(
+        client, db_session, email="abort-retry@example.com"
+    )
+    initiated = _initiate_upload(client, token, project_id).json()
+    fake_storage.fail_next_aborts = 1
+
+    failed = client.post(
+        f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+        headers=auth_headers(token),
+    )
+
+    assert failed.status_code == 202, failed.text
+    assert failed.json() == {"status": "cleanup_pending"}
+    quota = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota["monthly_analysis_seconds_used"] == DECLARED_DURATION
+    assert quota["storage_bytes_used"] == DECLARED_SIZE
+    assert _initiate_upload(client, token, project_id).status_code == 409
+
+    retried = client.post(
+        f"/api/v1/projects/{project_id}/uploads/{initiated['video_asset_id']}/abort",
+        headers=auth_headers(token),
+    )
+
+    assert retried.status_code == 200, retried.text
+    assert retried.json() == {"status": "aborted"}
+    quota = client.get("/api/v1/quota/me", headers=auth_headers(token)).json()
+    assert quota["monthly_analysis_seconds_used"] == 0
+    assert quota["storage_bytes_used"] == 0
+    assert _initiate_upload(client, token, project_id).status_code == 201
+
+
 def test_finalize_is_idempotent_with_same_key_and_payload(
     client: TestClient, db_session: Session, fake_storage: FakeObjectStorage
 ) -> None:

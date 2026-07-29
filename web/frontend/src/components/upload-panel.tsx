@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { ApiError, api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -11,7 +11,7 @@ import {
   videoContentType,
   type UploadProgress,
 } from "@/lib/upload";
-import type { AnalysisJob } from "@/lib/types";
+import type { AnalysisJob, UploadInitiate } from "@/lib/types";
 import { formatTime } from "@/lib/rallies";
 
 function bytes(value: number) {
@@ -22,6 +22,11 @@ function bytes(value: number) {
 interface Selection {
   file: File;
   duration: number;
+}
+
+interface ActiveUpload {
+  initiated: UploadInitiate;
+  completedParts: Map<number, string>;
 }
 
 export function UploadPanel({
@@ -37,11 +42,27 @@ export function UploadPanel({
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [abortPending, setAbortPending] = useState(false);
+  const [activeUpload, setActiveUpload] = useState<ActiveUpload | null>(null);
+  const activeUploadRef = useRef<ActiveUpload | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
   const [finalize, setFinalize] = useState<{
     assetId: string;
     idempotencyKey: string;
     parts: { part_number: number; etag: string }[];
   } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+      const active = activeUploadRef.current;
+      if (active) {
+        void api.abortUpload(projectId, active.initiated.video_asset_id);
+      }
+    };
+  }, [projectId]);
 
   async function select(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -53,6 +74,9 @@ export function UploadPanel({
       const problem = validateVideo(file, duration);
       if (problem) throw new Error(problem);
       setSelection({ file, duration });
+      activeUploadRef.current = null;
+      setActiveUpload(null);
+      setAbortPending(false);
       setFinalize(null);
       setProgress(null);
     } catch (caught) {
@@ -69,37 +93,87 @@ export function UploadPanel({
       idempotency_key: request.idempotencyKey,
       parts: request.parts,
     });
+    activeUploadRef.current = null;
+    if (mountedRef.current) setActiveUpload(null);
     onComplete(result.analysis_job);
   }
 
   async function start() {
-    if (!selection) return;
+    if (!selection || abortPending) return;
     setBusy(true);
     setError(null);
+    const controller = new AbortController();
+    controllerRef.current = controller;
     try {
-      const initiated = await api.initiateUpload(projectId, {
-        filename: selection.file.name,
-        content_type: videoContentType(selection.file),
-        size_bytes: selection.file.size,
-        duration_seconds: selection.duration,
-        part_count: partCountFor(selection.file.size),
-      });
+      let current = activeUpload;
+      if (!current) {
+        const initiated = await api.initiateUpload(projectId, {
+          filename: selection.file.name,
+          content_type: videoContentType(selection.file),
+          size_bytes: selection.file.size,
+          duration_seconds: selection.duration,
+          part_count: partCountFor(selection.file.size),
+        });
+        current = { initiated, completedParts: new Map() };
+        activeUploadRef.current = current;
+        if (controller.signal.aborted || !mountedRef.current) {
+          await api.abortUpload(projectId, initiated.video_asset_id);
+          return;
+        }
+        setActiveUpload(current);
+      }
       const completedParts = await uploadMultipart(
         selection.file,
-        initiated.part_urls,
+        current.initiated.part_urls,
         setProgress,
+        {
+          signal: controller.signal,
+          completedParts: current.completedParts,
+        },
       );
+      controller.signal.throwIfAborted();
       const request = {
-        assetId: initiated.video_asset_id,
+        assetId: current.initiated.video_asset_id,
         idempotencyKey: crypto.randomUUID(),
         parts: completedParts,
       };
       setFinalize(request);
       await finalizeUpload(request);
     } catch (caught) {
-      setError(caught instanceof ApiError || caught instanceof Error ? caught.message : t("unexpected"));
+      if (
+        mountedRef.current &&
+        !(caught instanceof DOMException && caught.name === "AbortError")
+      ) {
+        setError(caught instanceof ApiError || caught instanceof Error ? caught.message : t("unexpected"));
+      }
     } finally {
-      setBusy(false);
+      if (controllerRef.current === controller) controllerRef.current = null;
+      if (mountedRef.current) setBusy(false);
+    }
+  }
+
+  async function cancel() {
+    controllerRef.current?.abort();
+    const current = activeUploadRef.current;
+    if (!current) return;
+    setAbortPending(true);
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.abortUpload(projectId, current.initiated.video_asset_id);
+      if (result.status === "cleanup_pending") {
+        setError(t("cleanupPending"));
+        return;
+      }
+      activeUploadRef.current = null;
+      setActiveUpload(null);
+      setAbortPending(false);
+      setProgress(null);
+      setFinalize(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t("unexpected"));
+    } finally {
+      if (mountedRef.current) setBusy(false);
     }
   }
 
@@ -116,7 +190,7 @@ export function UploadPanel({
           type="file"
           accept="video/mp4,video/quicktime,video/x-matroska,video/webm,video/x-msvideo"
           onChange={select}
-          disabled={busy}
+          disabled={busy || !!activeUpload}
         />
         <label htmlFor="video-input">
           <span className="tennis-ball" aria-hidden="true" />
@@ -141,11 +215,18 @@ export function UploadPanel({
         <div className="inline-error" role="alert">
           {error}
           {finalize && <button onClick={() => finalizeUpload(finalize)}>{t("retry")}</button>}
+          {!finalize && activeUpload && !abortPending && <button onClick={start}>{t("retry")}</button>}
+          {activeUpload && <button onClick={cancel}>{abortPending ? t("retry") : t("cancel")}</button>}
         </div>
       )}
-      <button className="button primary upload-action" disabled={!selection || busy} onClick={start}>
-        {busy ? <><span className="spinner light" />{t("uploading")}</> : t("startUpload")}
-      </button>
+      <div className="upload-actions">
+        <button className="button primary upload-action" disabled={!selection || busy || abortPending} onClick={start}>
+          {busy ? <><span className="spinner light" />{t("uploading")}</> : t("startUpload")}
+        </button>
+        {activeUpload && busy && (
+          <button className="button ghost" onClick={cancel}>{t("cancel")}</button>
+        )}
+      </div>
     </section>
   );
 }
