@@ -7,6 +7,7 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
+import Link from "next/link";
 import { API_URL, ApiError, api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -390,7 +391,12 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
       revisions.current = new Map(nextRallies.map((rally) => [rally.id, 0]));
       savedRevisions.current = new Map(nextRallies.map((rally) => [rally.id, 0]));
       setSelectedId(nextRallies[0]?.id ?? null);
-      await loadSource();
+      if (nextProject.video_asset_status === "source_expired") {
+        setSourceUrl(null);
+        setSourceExpired(true);
+      } else {
+        await loadSource();
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : tRef.current("unexpected"));
     } finally {
@@ -432,7 +438,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   function edit(id: string, nextEdit: RallyEdit) {
-    if (exportLockRef.current) return;
+    if (exportLockRef.current || readOnly) return;
     const revision = (revisions.current.get(id) ?? 0) + 1;
     revisions.current.set(id, revision);
     setRallies((current) => updateRally(current, id, nextEdit));
@@ -462,7 +468,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
   }, [save]);
 
   function batch(mode: "all" | "recommended" | "none") {
-    if (exportLockRef.current) return;
+    if (exportLockRef.current || readOnly) return;
     for (const rally of rallyRef.current) {
       const next =
         mode === "recommended"
@@ -474,6 +480,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
 
   const selected = rallies.find((rally) => rally.id === selectedId) ?? null;
   const includedCount = rallies.filter((rally) => rally.edit.included).length;
+  const readOnly = project?.video_asset_status === "source_expired";
   const setExportLock = (locked: boolean) => {
     exportLockRef.current = locked;
     setExportLocked(locked);
@@ -521,9 +528,9 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
             <span>{formatTime(currentTime)}</span>
           </div>
           <div className="batch-actions">
-            <button onClick={() => batch("all")} disabled={exportLocked}>{t("includeAll")}</button>
-            <button onClick={() => batch("recommended")} disabled={exportLocked}>{t("recommended")}</button>
-            <button onClick={() => batch("none")} disabled={exportLocked}>{t("excludeAll")}</button>
+            <button onClick={() => batch("all")} disabled={exportLocked || readOnly}>{t("includeAll")}</button>
+            <button onClick={() => batch("recommended")} disabled={exportLocked || readOnly}>{t("recommended")}</button>
+            <button onClick={() => batch("none")} disabled={exportLocked || readOnly}>{t("excludeAll")}</button>
           </div>
           <div className="rally-list">
             {rallies.map((rally) => {
@@ -544,7 +551,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
                     <input
                       type="checkbox"
                       checked={rally.edit.included}
-                      disabled={exportLocked}
+                      disabled={exportLocked || readOnly}
                       onChange={() => edit(rally.id, { ...rally.edit, included: !rally.edit.included })}
                     />
                     <span>{rally.edit.included ? t("keep") : t("cut")}</span>
@@ -553,7 +560,7 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
                     <TrimEditor
                       rally={rally}
                       saveState={saveStates[rally.id] ?? "saved"}
-                      disabled={exportLocked}
+                      disabled={exportLocked || readOnly}
                       onEdit={(next) => edit(rally.id, next)}
                       onRetry={() => {
                         if (!exportLockRef.current) {
@@ -566,12 +573,25 @@ export function ReviewStudio({ projectId }: { projectId: string }) {
               );
             })}
           </div>
-          <ExportPanel
-            projectId={projectId}
-            includedCount={includedCount}
-            flushPendingSaves={flushPendingSaves}
-            onCreatingChange={setExportLock}
-          />
+          {readOnly ? (
+            <div className="export-panel">
+              <div>
+                <p className="set-label">SOURCE RETENTION / READ ONLY</p>
+                <strong>{t("sourceExpired")}</strong>
+                <small>{t("sourceExpiredHint")}</small>
+              </div>
+              <Link className="button primary" href="/projects">
+                {t("createNewMatch")}
+              </Link>
+            </div>
+          ) : (
+            <ExportPanel
+              projectId={projectId}
+              includedCount={includedCount}
+              flushPendingSaves={flushPendingSaves}
+              onCreatingChange={setExportLock}
+            />
+          )}
         </aside>
       </div>
     </main>

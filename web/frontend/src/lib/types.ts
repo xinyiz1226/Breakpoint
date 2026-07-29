@@ -16,6 +16,7 @@ export interface Project {
   created_at: string;
   updated_at: string;
   has_video: boolean;
+  has_analysis: boolean;
   video_asset_status:
     | "upload_initiated"
     | "finalizing"

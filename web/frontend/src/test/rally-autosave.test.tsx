@@ -27,6 +27,7 @@ function setup() {
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     has_video: true,
+    has_analysis: true,
     video_asset_status: "uploaded",
   });
   vi.spyOn(api, "getRallies").mockResolvedValue([rally]);
@@ -168,5 +169,35 @@ describe("rally editing", () => {
       });
       await Promise.resolve();
     });
+  });
+
+  it("preserves expired reports as read-only review without playback or export", async () => {
+    vi.spyOn(api, "getProject").mockResolvedValue({
+      id: "project-1",
+      owner_id: "user-1",
+      name: "Retained report",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-08T00:00:00Z",
+      has_video: false,
+      has_analysis: true,
+      video_asset_status: "source_expired",
+    });
+    vi.spyOn(api, "getRallies").mockResolvedValue([rally]);
+    const sourceUrl = vi.spyOn(api, "sourceUrl");
+    const updateRally = vi.spyOn(api, "updateRally");
+    const createExport = vi.spyOn(api, "createExport");
+
+    render(<I18nProvider><ReviewStudio projectId="project-1" /></I18nProvider>);
+
+    expect(await screen.findByText("Rally queue")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Create highlight reel" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create a new match" })).toHaveAttribute(
+      "href",
+      "/projects",
+    );
+    expect(sourceUrl).not.toHaveBeenCalled();
+    expect(updateRally).not.toHaveBeenCalled();
+    expect(createExport).not.toHaveBeenCalled();
   });
 });

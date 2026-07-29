@@ -17,6 +17,7 @@ describe("ProjectScreen upload state", () => {
       created_at: "2026-07-29T00:00:00Z",
       updated_at: "2026-07-29T00:00:00Z",
       has_video: false,
+      has_analysis: false,
       video_asset_status: "upload_aborted",
     });
     const getAnalysis = vi.spyOn(api, "getAnalysis");
@@ -39,9 +40,24 @@ describe("ProjectScreen upload state", () => {
       created_at: "2026-07-29T00:00:00Z",
       updated_at: "2026-08-05T00:00:00Z",
       has_video: false,
+      has_analysis: true,
       video_asset_status: "source_expired",
     });
-    const getAnalysis = vi.spyOn(api, "getAnalysis");
+    const getAnalysis = vi.spyOn(api, "getAnalysis").mockResolvedValue({
+      id: "analysis-1",
+      project_id: "project-1",
+      video_asset_id: "asset-1",
+      status: "succeeded",
+      progress: 1,
+      current_step: "Report ready",
+      report_object_key: "projects/project-1/reports/report.json",
+      failure_summary: null,
+      event_version: 3,
+      cancel_requested_at: null,
+      created_at: "2026-07-29T00:00:00Z",
+      started_at: "2026-07-29T00:01:00Z",
+      finished_at: "2026-07-29T00:02:00Z",
+    });
 
     render(
       <I18nProvider>
@@ -49,16 +65,11 @@ describe("ProjectScreen upload state", () => {
       </I18nProvider>,
     );
 
-    expect(
-      await screen.findByRole("heading", {
-        name: "The source video is no longer available.",
-      }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Upload & analyze" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Create a new match" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /review/i })).toHaveAttribute(
       "href",
-      "/projects",
+      "/projects/project-1/review",
     );
-    expect(getAnalysis).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Upload & analyze" })).not.toBeInTheDocument();
+    expect(getAnalysis).toHaveBeenCalledWith("project-1");
   });
 });

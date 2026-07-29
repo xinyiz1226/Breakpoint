@@ -21,7 +21,7 @@ export function ProjectScreen({ projectId }: { projectId: string }) {
     try {
       const nextProject = await api.getProject(projectId);
       setProject(nextProject);
-      if (nextProject.has_video) setJob(await api.getAnalysis(projectId));
+      if (nextProject.has_analysis) setJob(await api.getAnalysis(projectId));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : t("unexpected"));
     } finally {

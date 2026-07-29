@@ -26,8 +26,11 @@ import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.services.storage_cleanup import claim_and_process
+from tests.fakes import FakeObjectStorage
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_DIR = BACKEND_DIR / "alembic"
@@ -1056,3 +1059,296 @@ def test_0008_rejects_cross_user_storage_row_for_asset(scratch_db_path):
         assert "quota ledger ownership mismatch" in str(exc)
     else:
         pytest.fail("migration trusted a cross-user storage row for an asset")
+
+
+def _seed_0010_source_cleanup_case(
+    db_path: Path,
+    *,
+    asset_status: str,
+    cleanup_operation: str,
+    cleanup_status: str,
+    has_completed_analysis: bool,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    _run_alembic(db_path, "0010")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    expired_at = now - timedelta(days=1)
+    object_key = f"projects/{project_id}/source/match.mp4"
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO users (
+                        id, created_at, updated_at, email, password_hash, role,
+                        is_active, is_verified
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :email, :password_hash,
+                        'USER', 1, 1
+                    )
+                    """
+                ),
+                {
+                    "id": user_id.hex,
+                    "created_at": now,
+                    "updated_at": now,
+                    "email": f"{user_id}@example.com",
+                    "password_hash": "not-a-real-hash",
+                },
+            )
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO projects (
+                        id, created_at, updated_at, owner_id, name, deleted_at
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :owner_id,
+                        'Retention migration', NULL
+                    )
+                    """
+                ),
+                {
+                    "id": project_id.hex,
+                    "created_at": now,
+                    "updated_at": now,
+                    "owner_id": user_id.hex,
+                },
+            )
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO video_assets (
+                        id, created_at, updated_at, project_id, owner_id,
+                        object_key, original_filename, content_type,
+                        declared_size_bytes, actual_size_bytes,
+                        declared_duration_seconds, duration_seconds,
+                        retention_expires_at, status, upload_id, part_count,
+                        analysis_reserved_seconds, storage_reserved_bytes,
+                        storage_counted_bytes, cleanup_generation
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :project_id, :owner_id,
+                        :object_key, 'match.mp4', 'video/mp4',
+                        5, 5, 10, 10, :retention_expires_at, :status,
+                        'legacy-upload', 1, 0, 0, :storage_counted_bytes, 0
+                    )
+                    """
+                ),
+                {
+                    "id": asset_id.hex,
+                    "created_at": now,
+                    "updated_at": now,
+                    "project_id": project_id.hex,
+                    "owner_id": user_id.hex,
+                    "object_key": object_key,
+                    "retention_expires_at": (
+                        expired_at if has_completed_analysis else None
+                    ),
+                    "status": asset_status,
+                    "storage_counted_bytes": (
+                        5 if asset_status == "CLEANUP_PENDING" else 0
+                    ),
+                },
+            )
+            if has_completed_analysis:
+                conn.execute(
+                    sa.text(
+                        """
+                        INSERT INTO analysis_jobs (
+                            id, created_at, updated_at, project_id,
+                            video_asset_id, owner_id, status, progress,
+                            report_object_key, finished_at
+                        ) VALUES (
+                            :id, :created_at, :updated_at, :project_id,
+                            :video_asset_id, :owner_id, 'SUCCEEDED', 1,
+                            :report_object_key, :finished_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": uuid.uuid4().hex,
+                        "created_at": now,
+                        "updated_at": now,
+                        "project_id": project_id.hex,
+                        "video_asset_id": asset_id.hex,
+                        "owner_id": user_id.hex,
+                        "report_object_key": (
+                            f"projects/{project_id}/reports/report.json"
+                        ),
+                        "finished_at": now,
+                    },
+                )
+            conn.execute(
+                sa.text(
+                    """
+                    INSERT INTO storage_cleanup_tasks (
+                        id, created_at, updated_at, project_id, video_asset_id,
+                        object_key, upload_id, operation, status, attempts,
+                        claimed_at, completed_at, generation
+                    ) VALUES (
+                        :id, :created_at, :updated_at, :project_id,
+                        :video_asset_id, :object_key, :upload_id, :operation,
+                        :status, 1, :claimed_at, :completed_at, 0
+                    )
+                    """
+                ),
+                {
+                    "id": task_id.hex,
+                    "created_at": now,
+                    "updated_at": now,
+                    "project_id": project_id.hex,
+                    "video_asset_id": asset_id.hex,
+                    "object_key": object_key,
+                    "upload_id": (
+                        "legacy-upload"
+                        if cleanup_operation == "ABORT_MULTIPART"
+                        else None
+                    ),
+                    "operation": cleanup_operation,
+                    "status": cleanup_status,
+                    "claimed_at": (
+                        now if cleanup_status in {"RUNNING", "COMPLETED"} else None
+                    ),
+                    "completed_at": (
+                        now if cleanup_status == "COMPLETED" else None
+                    ),
+                },
+            )
+    finally:
+        engine.dispose()
+    return asset_id, task_id
+
+
+@pytest.mark.parametrize(
+    (
+        "asset_status",
+        "cleanup_operation",
+        "cleanup_status",
+        "has_completed_analysis",
+        "expected_status",
+        "expects_expiry_intent",
+    ),
+    [
+        (
+            "UPLOAD_ABORTED",
+            "DELETE_OBJECT",
+            "COMPLETED",
+            True,
+            "SOURCE_EXPIRED",
+            True,
+        ),
+        (
+            "CLEANUP_PENDING",
+            "DELETE_OBJECT",
+            "PENDING",
+            True,
+            "CLEANUP_PENDING",
+            True,
+        ),
+        (
+            "UPLOAD_ABORTED",
+            "ABORT_MULTIPART",
+            "COMPLETED",
+            False,
+            "UPLOAD_ABORTED",
+            False,
+        ),
+        (
+            "CLEANUP_PENDING",
+            "DELETE_OBJECT",
+            "RUNNING",
+            True,
+            "CLEANUP_PENDING",
+            False,
+        ),
+    ],
+    ids=[
+        "completed-retention-delete",
+        "pending-retention-delete",
+        "genuine-prefinalize-abort",
+        "ambiguous-inflight-delete",
+    ],
+)
+def test_0011_backfills_only_evidence_backed_source_expiry(
+    scratch_db_path: Path,
+    asset_status: str,
+    cleanup_operation: str,
+    cleanup_status: str,
+    has_completed_analysis: bool,
+    expected_status: str,
+    expects_expiry_intent: bool,
+) -> None:
+    asset_id, _task_id = _seed_0010_source_cleanup_case(
+        scratch_db_path,
+        asset_status=asset_status,
+        cleanup_operation=cleanup_operation,
+        cleanup_status=cleanup_status,
+        has_completed_analysis=has_completed_analysis,
+    )
+
+    _run_alembic(scratch_db_path, "0011")
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    SELECT status, source_expired_at
+                    FROM video_assets
+                    WHERE id = :id
+                    """
+                ),
+                {"id": asset_id.hex},
+            ).one()
+            assert row.status == expected_status
+            assert (row.source_expired_at is not None) is expects_expiry_intent
+    finally:
+        engine.dispose()
+
+
+def test_0011_inflight_retention_delete_remains_recoverable_after_upgrade(
+    scratch_db_path: Path,
+) -> None:
+    asset_id, task_id = _seed_0010_source_cleanup_case(
+        scratch_db_path,
+        asset_status="CLEANUP_PENDING",
+        cleanup_operation="DELETE_OBJECT",
+        cleanup_status="RUNNING",
+        has_completed_analysis=True,
+    )
+    _run_alembic(scratch_db_path, "0011")
+
+    engine = sa.create_engine(f"sqlite:///{scratch_db_path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    """
+                    UPDATE storage_cleanup_tasks
+                    SET status = 'PENDING', lease_token = NULL, claimed_at = NULL
+                    WHERE id = :id
+                    """
+                ),
+                {"id": task_id.hex},
+            )
+        with Session(engine) as session:
+            claim_and_process(session, task_id, FakeObjectStorage())
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    SELECT status, source_expired_at
+                    FROM video_assets
+                    WHERE id = :id
+                    """
+                ),
+                {"id": asset_id.hex},
+            ).one()
+            assert row.status == "SOURCE_EXPIRED"
+            assert row.source_expired_at is not None
+    finally:
+        engine.dispose()

@@ -53,9 +53,16 @@ from botocore.exceptions import ClientError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.base import utcnow
+from app.models.base import ensure_aware, utcnow
 from app.models.cleanup import StorageCleanupTask
-from app.models.enums import StorageCleanupOperation, StorageCleanupStatus, VideoAssetStatus
+from app.models.enums import (
+    JobStatus,
+    StorageCleanupOperation,
+    StorageCleanupStatus,
+    VideoAssetStatus,
+)
+from app.models.job import AnalysisJob
+from app.models.project import Project
 from app.models.user import User
 from app.models.video import VideoAsset
 from app.services import reservations as reservation_service
@@ -314,7 +321,8 @@ def _complete_claim(
         return
 
     task.status = StorageCleanupStatus.COMPLETED
-    task.completed_at = utcnow()
+    completed_at = utcnow()
+    task.completed_at = completed_at
 
     if video_asset is not None:
         # Only now that the storage-side operation has actually succeeded
@@ -329,6 +337,31 @@ def _complete_claim(
         reservation_service.release_analysis_reservation(db, video_asset)
         reservation_service.release_storage_reservation(db, video_asset)
         reservation_service.release_counted_storage_bytes(db, video_asset)
+        if (
+            video_asset.source_expired_at is None
+            and video_asset.status == VideoAssetStatus.CLEANUP_PENDING
+            and task.operation == StorageCleanupOperation.DELETE_OBJECT
+            and task.object_key == video_asset.object_key
+            and video_asset.retention_expires_at is not None
+            and ensure_aware(video_asset.retention_expires_at)
+            <= ensure_aware(completed_at)
+            and db.execute(
+                select(Project.id).where(
+                    Project.id == video_asset.project_id,
+                    Project.deleted_at.is_(None),
+                )
+            ).first()
+            is not None
+            and db.execute(
+                select(AnalysisJob.id).where(
+                    AnalysisJob.video_asset_id == video_asset.id,
+                    AnalysisJob.status == JobStatus.SUCCEEDED,
+                    AnalysisJob.report_object_key.is_not(None),
+                )
+            ).first()
+            is not None
+        ):
+            video_asset.source_expired_at = completed_at
         terminal_status = (
             VideoAssetStatus.SOURCE_EXPIRED
             if video_asset.source_expired_at is not None

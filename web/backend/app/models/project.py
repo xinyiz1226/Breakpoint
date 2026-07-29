@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.models.base import TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import VideoAssetStatus
+from app.models.enums import JobStatus, VideoAssetStatus
 
 if TYPE_CHECKING:
     from app.models.job import AnalysisJob, ExportJob
@@ -54,3 +54,10 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     @property
     def video_asset_status(self) -> VideoAssetStatus | None:
         return self.video_asset.status if self.video_asset is not None else None
+
+    @property
+    def has_analysis(self) -> bool:
+        return any(
+            job.status == JobStatus.SUCCEEDED and job.report_object_key is not None
+            for job in self.analysis_jobs
+        )

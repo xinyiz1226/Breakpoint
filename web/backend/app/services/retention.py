@@ -157,7 +157,7 @@ def run_retention_cleanup(
             db.commit()
             continue
         asset.status = VideoAssetStatus.CLEANUP_PENDING
-        asset.source_expired_at = now
+        asset.source_expired_at = reference
         task = storage_cleanup.get_or_create_cleanup_task(
             db,
             project_id=asset.project_id,

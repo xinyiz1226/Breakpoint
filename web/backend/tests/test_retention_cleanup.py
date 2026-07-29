@@ -170,7 +170,8 @@ def test_expired_source_preserves_historical_analysis_and_rejects_reupload(
         content_type="video/mp4",
     )
 
-    run_retention_cleanup(db_session, fake_storage, now=utcnow())
+    # Production Celery calls without an explicit clock override.
+    run_retention_cleanup(db_session, fake_storage)
     token = login(
         client,
         email="expired-history@example.com",
@@ -198,6 +199,9 @@ def test_expired_source_preserves_historical_analysis_and_rejects_reupload(
     assert project_response.status_code == 200
     assert project_response.json()["video_asset_status"] == "source_expired"
     assert project_response.json()["has_video"] is False
+    assert project_response.json()["has_analysis"] is True
+    db_session.expire_all()
+    assert db_session.get(VideoAsset, asset.id).source_expired_at is not None
     assert analysis_response.status_code == 200
     assert analysis_response.json()["id"] == str(job.id)
     assert reupload.status_code == 409
