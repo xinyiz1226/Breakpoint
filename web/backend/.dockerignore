@@ -1,7 +1,2 @@
-.venv/
-__pycache__/
-*.pyc
-tests/
-*.db
-.env
-.pytest_cache/
+# The image now builds from the repository root; root-level exclusions live
+# in /.dockerignore.

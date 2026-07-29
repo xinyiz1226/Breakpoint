@@ -73,6 +73,32 @@ Vision-enabled reports include a `players` object for each rally. `player_1` and
 current court side, detection/identity confidence, normalized movement distance,
 sample count, and mean frame position. Actual player names are not inferred.
 
+## Web SaaS local stack
+
+The local SaaS stack includes FastAPI, a Celery media worker, Celery Beat,
+Postgres, Redis, MinIO, and Mailpit. From the repository root:
+
+```powershell
+$env:BREAKPOINT_JWT_SECRET_KEY = "replace-with-a-long-random-local-secret"
+docker compose -f web\docker-compose.yml up --build
+```
+
+The API listens on `http://localhost:8000`, MinIO's console on
+`http://localhost:9001`, and Mailpit on `http://localhost:8025`. The shared
+API/worker image installs ffmpeg and the repository analysis-engine
+dependencies. Beat retries durable queued jobs and storage cleanup, and enforces
+seven-day source/export retention.
+
+Backend tests default to fake media tools:
+
+```powershell
+Set-Location web\backend
+python -m pytest
+```
+
+To run the optional real ffmpeg/engine small-video test, set
+`BREAKPOINT_RUN_MEDIA_INTEGRATION=1` and run pytest with `-m integration`.
+
 The bundled `engine/vision/models/yolox_nano.onnx` model is distributed under
 Apache License 2.0. Its source and checksum are documented in
 `engine/vision/models/MODEL_INFO.txt`.

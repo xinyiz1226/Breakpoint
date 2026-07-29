@@ -322,62 +322,54 @@ Define stable schemas for progress events, reports, rallies, edits, and export
 requests. Contract tests should prevent the desktop bridge, SaaS worker, and web
 frontend from drifting apart.
 
-## Open Implementation Notes
+## Implementation Status
 
-### Layer 1 status
+### Layers 1 and 2
 
-Layer 1 delivered the backend foundation described in this document: the
-`web/backend` FastAPI modular monolith, the full data model (users, refresh
-sessions, one-time email tokens, projects, video assets, analysis jobs,
-rallies, rally edits, export jobs, quota ledger) with a matching Alembic
-migration chain, Argon2/JWT/rotating-refresh-token auth with email verification and
-password reset, owner-authorized project CRUD, quota-enforced S3-compatible
-multipart uploads with idempotent finalization, read-only admin APIs, health
-checks, and local Docker Compose infrastructure (Postgres, Redis, MinIO,
-Mailpit). It deliberately does not implement Celery task execution, SSE or
-WebSocket progress streaming, preview generation, analysis or export
-execution, a retention scheduler, or the web frontend UI — those remain
-scoped to later layers against the state machines and contracts this layer
-established. It enforces the declared-duration cap during upload initiation,
-but leaves authoritative enforcement to the worker:
-`VideoAsset.duration_seconds` and `duration_status` are nullable and stay unset
-until a future worker probes the finalized asset and compares it
-against the env-configurable `MAX_VIDEO_DURATION_SECONDS` (default 10800,
-i.e. 3 hours), rejecting over-limit assets before analysis.
+Layer 1 delivered the FastAPI/Postgres/MinIO foundation, authentication,
+owner-scoped projects and uploads, quota reservations, durable storage cleanup,
+and job/rally schemas.
 
-Upload initiation validates and reserves against a client-declared duration
-(`VideoAsset.declared_duration_seconds`, required, distinct from the
-nullable authoritative pair above): requests exceeding
-`MAX_VIDEO_DURATION_SECONDS` are rejected outright, and accepted requests
-provisionally reserve that many seconds of monthly analysis quota via a
-`QuotaLedgerEntry` of type `ANALYSIS_RESERVED`. This is a three-step ledger
-contract that only the first step is implemented in Layer 1:
+Layer 2 adds Celery workers and Beat over Redis. Postgres remains authoritative
+for job state, cancellation, progress versions, export snapshots, retention,
+and billing; Redis is used for broker, result, and Celery event traffic only.
+Duplicate task delivery is a no-op once a job is running or terminal, and Beat
+periodically redelivers durable queued jobs if the API's initial broker dispatch
+fails.
 
-1. **Reserve** (implemented): initiate writes `ANALYSIS_RESERVED` for the
-   declared duration, so concurrent uploads cannot collectively exceed the
-   monthly budget before any of them are actually analyzed.
-2. **Release** (implemented for finalize-time integrity failures only): if
-   finalize's own checks fail (size mismatch, oversized actual object), the
-   asset will never be analyzed, so the API writes
-   `ANALYSIS_RESERVATION_RELEASED` to free the reservation immediately.
-   Reservations for uploads that are never finalized are not released in
-   Layer 1 — like other abandoned-upload cleanup, that is the scheduled
-   task's responsibility (not implemented).
-3. **Reconcile** (not implemented, contract only): the future worker's
-   first step is `ffprobe`. If the authoritative duration exceeds the cap,
-   the worker must mark the analysis job failed and write
-   `ANALYSIS_RESERVATION_RELEASED` for the declared amount. Otherwise, once
-   analysis completes, the worker reconciles the reservation to actual
-   usage via `ANALYSIS_COMPLETED` (present in the enum from Layer 1, reused
-   rather than redefined for this purpose).
+Analysis processing follows this order:
 
-`monthly_analysis_seconds_used` (`/quota/me` and enforcement) is computed as
-the signed sum of `ANALYSIS_RESERVED`, `ANALYSIS_RESERVATION_RELEASED`, and
-`ANALYSIS_COMPLETED` deltas within the calendar month, i.e. it reflects
-"reserved-or-used" seconds. A reservation and its release straddling a
-calendar month boundary can show as negative usage in the release month;
-this is an accepted Layer 1 simplification rather than an engineered
-cross-month reconciliation.
+1. Download the source object into a per-job temporary directory.
+2. Run `ffprobe`, validate the authoritative duration against the 10,800-second
+   cap, and call `apply_authoritative_duration` before expensive work.
+3. Create an H.264/AAC MP4 preview only when the probed container/codecs are not
+   browser-compatible.
+4. Run the existing engine in a child process with JSON-line progress, bounded
+   stderr retention, and active process-group termination on cancellation.
+5. Validate report version 2 and every rally range, upload `full_report.json`,
+   persist rallies plus default edits atomically, and mark the job succeeded.
+6. In that same success transaction, release the authoritative reservation and
+   append one `ANALYSIS_COMPLETED` entry for the same amount in the reservation's
+   original accounting month. Failure or cancellation before success releases
+   the reservation without billing; retries rebook it in that original month.
+
+Export creation persists the selected rally IDs and effective trimmed ranges
+before enqueue. The worker validates that immutable snapshot against the source
+duration, normalizes and concatenates clips to H.264/AAC MP4, uploads the result,
+and gives it a seven-day expiry. Later rally edits do not affect a retry.
+
+SSE progress uses the persisted monotonic `event_version` as its event ID.
+Authorization and every snapshot read use short-lived sessions; no transaction
+is held for the life of the stream. Reconnects send only a newer durable
+snapshot than `Last-Event-ID`. Owner payloads expose `failure_summary`, never
+the bounded admin-only `failure_detail`.
+
+Beat runs queued-job dispatch recovery, the existing multipart/storage cleanup
+sweep, and seven-day source/preview/export retention cleanup. Source deletion
+continues through Layer 1's leased `StorageCleanupTask` path so object deletion
+and quota release remain idempotent. Project tombstones also cancel active
+children and enqueue durable deletion for source, preview, report, and export
+objects.
 
 The design intentionally leaves vendor-specific deployment details to the
 implementation plan. The storage, queue, and container boundaries should allow a

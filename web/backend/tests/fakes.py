@@ -93,6 +93,7 @@ class FakeObjectStorage:
         self.aborted_upload_ids: set[str] = set()
         self.deleted_object_keys: list[str] = []
         self.objects: dict[str, ObjectMetadata] = {}
+        self.object_bodies: dict[str, bytes] = {}
         self.connection_ok: bool = True
         self.fail_next_deletes: int = 0
         self.fail_next_aborts: int = 0
@@ -152,7 +153,30 @@ class FakeObjectStorage:
                 "DeleteObject",
             )
         self.objects.pop(object_key, None)
+        self.object_bodies.pop(object_key, None)
         self.deleted_object_keys.append(object_key)
+
+    def put_bytes(self, *, object_key: str, data: bytes, content_type: str) -> None:
+        self.object_bodies[object_key] = data
+        self.objects[object_key] = ObjectMetadata(
+            size_bytes=len(data), content_type=content_type
+        )
+
+    def download_file(self, *, object_key: str, destination: str) -> None:
+        if object_key not in self.objects:
+            raise ObjectNotFound(object_key=object_key)
+        from pathlib import Path
+
+        Path(destination).write_bytes(self.object_bodies.get(object_key, b""))
+
+    def upload_file(self, *, source: str, object_key: str, content_type: str) -> None:
+        from pathlib import Path
+
+        self.put_bytes(
+            object_key=object_key,
+            data=Path(source).read_bytes(),
+            content_type=content_type,
+        )
 
     def head_object(self, *, object_key: str) -> ObjectMetadata:
         metadata = self.objects.get(object_key)

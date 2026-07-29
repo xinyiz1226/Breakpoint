@@ -1,10 +1,4 @@
-# Layer 1 infrastructure for local development.
-#
-# This intentionally provisions redis and defines the bucket-init job for
-# forward-compatibility with later layers (Celery workers, background
-# analysis/export execution) even though nothing in Layer 1 enqueues or
-# consumes from redis yet. No worker/Celery containers are defined here —
-# only the API and its infrastructure dependencies.
+# Local SaaS stack: API, Celery media worker/Beat, Postgres, Redis, and MinIO.
 services:
   postgres:
     image: postgres:16-alpine
@@ -73,11 +67,13 @@ services:
 
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: web/backend/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -98,6 +94,62 @@ services:
       BREAKPOINT_SMTP_PORT: "1025"
       BREAKPOINT_SMTP_USE_TLS: "false"
       BREAKPOINT_SMTP_FROM_ADDRESS: no-reply@breakpoint.local
+      BREAKPOINT_S3_ENDPOINT_URL: http://minio:9000
+      BREAKPOINT_S3_ACCESS_KEY: minioadmin
+      BREAKPOINT_S3_SECRET_KEY: minioadmin
+      BREAKPOINT_S3_BUCKET: breakpoint-videos
+      BREAKPOINT_S3_REGION: us-east-1
+      BREAKPOINT_S3_USE_PATH_STYLE: "true"
+      BREAKPOINT_REDIS_URL: redis://redis:6379/0
+      BREAKPOINT_TASK_DISPATCH_ENABLED: "true"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: web/backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    healthcheck:
+      disable: true
+    environment:
+      BREAKPOINT_ENVIRONMENT: production
+      BREAKPOINT_RUN_MIGRATIONS: "false"
+      BREAKPOINT_DATABASE_URL: postgresql+psycopg2://breakpoint:breakpoint@postgres:5432/breakpoint
+      BREAKPOINT_JWT_SECRET_KEY: ${BREAKPOINT_JWT_SECRET_KEY:?set a strong JWT secret}
+      BREAKPOINT_REDIS_URL: redis://redis:6379/0
+      BREAKPOINT_S3_ENDPOINT_URL: http://minio:9000
+      BREAKPOINT_S3_ACCESS_KEY: minioadmin
+      BREAKPOINT_S3_SECRET_KEY: minioadmin
+      BREAKPOINT_S3_BUCKET: breakpoint-videos
+      BREAKPOINT_S3_REGION: us-east-1
+      BREAKPOINT_S3_USE_PATH_STYLE: "true"
+
+  beat:
+    build:
+      context: ..
+      dockerfile: web/backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "app.celery_app:celery_app", "beat", "--loglevel=INFO"]
+    healthcheck:
+      disable: true
+    environment:
+      BREAKPOINT_ENVIRONMENT: production
+      BREAKPOINT_RUN_MIGRATIONS: "false"
+      BREAKPOINT_DATABASE_URL: postgresql+psycopg2://breakpoint:breakpoint@postgres:5432/breakpoint
+      BREAKPOINT_JWT_SECRET_KEY: ${BREAKPOINT_JWT_SECRET_KEY:?set a strong JWT secret}
+      BREAKPOINT_REDIS_URL: redis://redis:6379/0
       BREAKPOINT_S3_ENDPOINT_URL: http://minio:9000
       BREAKPOINT_S3_ACCESS_KEY: minioadmin
       BREAKPOINT_S3_SECRET_KEY: minioadmin

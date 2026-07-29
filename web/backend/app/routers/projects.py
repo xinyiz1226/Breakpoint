@@ -144,6 +144,8 @@ def delete_project(
         job.status = JobStatus.CANCELLED
         job.finished_at = utcnow()
         job.failure_summary = "Cancelled because the project was deleted"
+        job.lease_token = uuid.uuid4()
+        job.event_version += 1
         quota_service.record_ledger_event(
             db,
             user_id=current_user.id,
@@ -167,6 +169,8 @@ def delete_project(
         export_job.status = JobStatus.CANCELLED
         export_job.finished_at = utcnow()
         export_job.failure_summary = "Cancelled because the project was deleted"
+        export_job.lease_token = uuid.uuid4()
+        export_job.event_version += 1
 
     video_asset = project.video_asset
     if video_asset is not None:
@@ -181,13 +185,13 @@ def delete_project(
         # corresponding DELETE_OBJECT cleanup task succeeds.
         reservation_service.release_analysis_reservation(db, video_asset)
 
-        task: StorageCleanupTask | None = None
+        tasks: list[StorageCleanupTask] = []
         if video_asset.status == VideoAssetStatus.UPLOAD_INITIATED and video_asset.upload_id:
             # Never finished uploading: nothing was ever completed in
             # storage, so the cleanup action is aborting the multipart
             # upload rather than deleting a (nonexistent) object.
             video_asset.status = VideoAssetStatus.CLEANUP_PENDING
-            task = storage_cleanup_service.get_or_create_cleanup_task(
+            tasks.append(storage_cleanup_service.get_or_create_cleanup_task(
                 db,
                 project_id=project.id,
                 video_asset_id=video_asset.id,
@@ -195,7 +199,7 @@ def delete_project(
                 upload_id=video_asset.upload_id,
                 operation=StorageCleanupOperation.ABORT_MULTIPART,
                 generation=video_asset.cleanup_generation,
-            )
+            ))
         elif video_asset.status in (
             VideoAssetStatus.FINALIZING,
             VideoAssetStatus.UPLOADED,
@@ -204,7 +208,7 @@ def delete_project(
             # An object may already exist in storage (finalizing, uploaded,
             # or a prior cleanup still pending): queue its deletion.
             video_asset.status = VideoAssetStatus.CLEANUP_PENDING
-            task = storage_cleanup_service.get_or_create_cleanup_task(
+            tasks.append(storage_cleanup_service.get_or_create_cleanup_task(
                 db,
                 project_id=project.id,
                 video_asset_id=video_asset.id,
@@ -212,14 +216,33 @@ def delete_project(
                 upload_id=None,
                 operation=StorageCleanupOperation.DELETE_OBJECT,
                 generation=video_asset.cleanup_generation,
-            )
+            ))
         # UPLOAD_ABORTED already has no outstanding storage-side artifact to
         # clean up -- nothing further to queue.
+
+        auxiliary_keys = [
+            video_asset.preview_object_key,
+            *[job.report_object_key for job in project.analysis_jobs],
+            *[job.output_object_key for job in project.export_jobs],
+        ]
+        for object_key in auxiliary_keys:
+            if object_key is None:
+                continue
+            tasks.append(
+                storage_cleanup_service.get_or_create_cleanup_task(
+                    db,
+                    project_id=project.id,
+                    video_asset_id=None,
+                    object_key=object_key,
+                    upload_id=None,
+                    operation=StorageCleanupOperation.DELETE_OBJECT,
+                )
+            )
 
         project.deleted_at = utcnow()
         db.commit()
 
-        if task is not None:
+        for task in tasks:
             storage_cleanup_service.claim_and_process(db, task.id, storage)
     else:
         project.deleted_at = utcnow()

@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import admin, auth, health, projects, quota, uploads
+from app.routers import admin, auth, health, jobs, projects, quota, uploads
 
 # Ensure every model is registered on Base.metadata (Alembic and
 # create_all-based tests both rely on this import happening on startup).
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(projects.router)
     app.include_router(uploads.router)
+    app.include_router(jobs.router)
     app.include_router(quota.router)
     app.include_router(admin.router)
 

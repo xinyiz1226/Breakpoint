@@ -45,6 +45,7 @@ def apply_authoritative_duration(
     analysis_job_id: uuid.UUID,
     authoritative_duration_seconds: float,
     settings: Settings,
+    commit: bool = True,
 ) -> AnalysisJob:
     # Non-locking lookup only to identify the owning user, per the same
     # lock-user-first discipline used across this codebase.
@@ -109,7 +110,8 @@ def apply_authoritative_duration(
             f"Video duration ({authoritative_duration_seconds:.0f}s) exceeds the "
             f"{settings.max_video_duration_seconds}s duration cap"
         )
-        db.commit()
+        if commit:
+            db.commit()
         return job
 
     # Quota excluding this asset's own current reservation: it is about to
@@ -128,7 +130,8 @@ def apply_authoritative_duration(
         release_analysis_reservation(db, video_asset)
         job.status = JobStatus.FAILED
         job.failure_summary = "Monthly analysis-seconds quota exceeded for this video's actual duration"
-        db.commit()
+        if commit:
+            db.commit()
         return job
 
     # Allowed: resize the reservation to the authoritative amount (release
@@ -149,5 +152,6 @@ def apply_authoritative_duration(
     video_asset.analysis_reservation_month = original_month
     video_asset.duration_status = VideoDurationStatus.WITHIN_LIMIT
 
-    db.commit()
+    if commit:
+        db.commit()
     return job

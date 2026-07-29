@@ -88,6 +88,10 @@ class ObjectStorage(Protocol):
 
     def delete_object(self, *, object_key: str) -> None: ...
 
+    def download_file(self, *, object_key: str, destination: str) -> None: ...
+
+    def upload_file(self, *, source: str, object_key: str, content_type: str) -> None: ...
+
     def head_object(self, *, object_key: str) -> ObjectMetadata: ...
 
     def generate_presigned_get_url(self, *, object_key: str, expires_in_seconds: int) -> str: ...
@@ -189,6 +193,17 @@ class S3ObjectStorage:
 
     def delete_object(self, *, object_key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=object_key)
+
+    def download_file(self, *, object_key: str, destination: str) -> None:
+        self._client.download_file(self._bucket, object_key, destination)
+
+    def upload_file(self, *, source: str, object_key: str, content_type: str) -> None:
+        self._client.upload_file(
+            source,
+            self._bucket,
+            object_key,
+            ExtraArgs={"ContentType": content_type},
+        )
 
     def head_object(self, *, object_key: str) -> ObjectMetadata:
         try:

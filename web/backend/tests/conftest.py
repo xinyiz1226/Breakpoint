@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.config import Settings, get_settings
 from app.db import Base, get_db
-from app.deps import get_email_sender, get_storage
+from app.deps import get_email_sender, get_storage, get_stream_session_factory
 from app.main import app
 from app.models.enums import UserRole
 from app.models.user import User
@@ -39,6 +39,7 @@ def test_settings() -> Settings:
         multipart_min_part_size_bytes=1024 * 1024,
         app_base_url="http://localhost:3000",
         cors_allow_origins=["http://localhost:3000"],
+        task_dispatch_enabled=False,
     )
 
 
@@ -97,6 +98,7 @@ def client(
     app.dependency_overrides[get_settings] = lambda: test_settings
     app.dependency_overrides[get_email_sender] = lambda: fake_email_sender
     app.dependency_overrides[get_storage] = lambda: fake_storage
+    app.dependency_overrides[get_stream_session_factory] = lambda: session_factory
 
     with TestClient(app) as test_client:
         yield test_client

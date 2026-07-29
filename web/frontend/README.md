@@ -76,5 +76,27 @@ Rallies mirror the desktop report convention: `source_index`, `start`, `end`,
 `score`, `features`, `players`, `report_version`. Rally edits mirror the
 desktop edit convention: `included`, `adjusted_start`, `adjusted_end`.
 
+## Analysis, progress, review, and export
+
+- `GET /api/v1/projects/{id}/analysis` — durable analysis snapshot.
+- `POST /api/v1/projects/{id}/analysis/cancel` — cancels queued work immediately
+  or requests active child-process termination.
+- `POST /api/v1/projects/{id}/analysis/retry` — requeues a failed job after
+  atomically rebooking its authoritative-duration reservation.
+- `GET /api/v1/projects/{id}/analysis/events` — owner-authorized SSE. Send
+  `Last-Event-ID`; event IDs are persisted monotonic job versions. Event data
+  includes status, progress, current step, user-safe failure summary, and finish
+  time, but never admin diagnostics.
+- `GET /api/v1/projects/{id}/rallies` and
+  `PATCH /api/v1/projects/{id}/rallies/{rally_id}` — review and autosave edits.
+- `POST /api/v1/projects/{id}/exports` — atomically snapshots the current
+  included/trimmed rally selection before enqueue.
+- `GET /api/v1/projects/{id}/exports/{export_job_id}` plus `/cancel`, `/retry`,
+  `/events`, and `/signed-url` — export lifecycle, SSE, and seven-day download.
+
+Analysis reports use `analysis_version: 2`. Source playback automatically uses
+the H.264/AAC preview proxy when the original probe found an incompatible
+browser container/codec combination.
+
 This file should be kept in sync with `web/backend/app/routers` whenever the
 contract changes, until a real frontend implementation replaces it.

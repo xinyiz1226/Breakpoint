@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, JSON, String
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String
 from sqlalchemy import Uuid as UuidType
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,7 +49,12 @@ class AnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     current_step: Mapped[str | None] = mapped_column(String(200), nullable=True)
     worker_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     engine_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    accounting_month: Mapped[date | None] = mapped_column(Date, nullable=True)
     report_object_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    event_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UuidType(as_uuid=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     # User-safe summary vs. admin-only diagnostic excerpt (e.g. stderr tail).
     failure_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -86,7 +91,14 @@ class ExportJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     progress: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    current_step: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    event_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UuidType(as_uuid=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    selection_snapshot: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     output_object_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    output_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     failure_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     failure_detail: Mapped[str | None] = mapped_column(String(4000), nullable=True)
 

@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db import get_db
+from app.db import get_db, get_session_factory
 from app.models.enums import UserRole
 from app.models.user import User
 from app.security import decode_access_token
@@ -30,6 +30,10 @@ def get_storage() -> ObjectStorage:
 @lru_cache
 def get_email_sender() -> EmailSender:
     return SmtpEmailSender(get_settings())
+
+
+def get_stream_session_factory():
+    return get_session_factory()
 
 
 def get_current_user(

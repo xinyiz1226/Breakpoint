@@ -4,5 +4,7 @@
 # API image never needs a migration flag/CLI branch in application code.
 set -eu
 
-alembic upgrade head
+if [ "${BREAKPOINT_RUN_MIGRATIONS:-true}" = "true" ]; then
+  alembic upgrade head
+fi
 exec "$@"

@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.deps import get_current_user, get_storage
-from app.models.base import utcnow
+from app.models.base import ensure_aware, utcnow
 from app.models.cleanup import StorageCleanupTask
 from app.models.enums import (
     JobStatus,
@@ -70,6 +70,7 @@ from app.services import quota as quota_service
 from app.services import reservations as reservation_service
 from app.services import storage_cleanup as storage_cleanup_service
 from app.services.storage import MultipartUploadNotFound, ObjectNotFound, ObjectStorage, UploadPart
+from app.task_dispatch import enqueue_analysis_job
 
 router = APIRouter(prefix="/api/v1/projects/{project_id}", tags=["uploads"])
 
@@ -662,6 +663,7 @@ def finalize_upload(
         video_asset_id=video_asset.id,
         owner_id=current_user.id,
         status=JobStatus.QUEUED,
+        accounting_month=video_asset.analysis_reservation_month,
     )
     db.add(job)
     db.flush()
@@ -683,6 +685,9 @@ def finalize_upload(
 
     db.commit()
 
+    if settings.task_dispatch_enabled:
+        enqueue_analysis_job(job.id)
+
     return FinalizeUploadResponse(
         video_asset=VideoAssetRead.model_validate(video_asset),
         analysis_job=AnalysisJobRead.model_validate(job),
@@ -701,8 +706,17 @@ def get_signed_video_url(
     video_asset = project.video_asset
     if video_asset is None or video_asset.status != VideoAssetStatus.UPLOADED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not available")
+    if video_asset.retention_expires_at is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not available")
+    remaining_seconds = int(
+        (ensure_aware(video_asset.retention_expires_at) - utcnow()).total_seconds()
+    )
+    if remaining_seconds <= 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video has expired")
+    expires_in_seconds = min(settings.presigned_url_ttl_seconds, remaining_seconds)
 
     url = storage.generate_presigned_get_url(
-        object_key=video_asset.object_key, expires_in_seconds=settings.presigned_url_ttl_seconds
+        object_key=video_asset.preview_object_key or video_asset.object_key,
+        expires_in_seconds=expires_in_seconds,
     )
-    return SignedUrlResponse(url=url, expires_in_seconds=settings.presigned_url_ttl_seconds)
+    return SignedUrlResponse(url=url, expires_in_seconds=expires_in_seconds)

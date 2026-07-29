@@ -80,6 +80,19 @@ class Settings(BaseSettings):
     multipart_upload_ttl_hours: int = 24
     asset_retention_days: int = 7
 
+    # Asynchronous media processing
+    redis_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
+    task_dispatch_enabled: bool = True
+    media_tools_mode: str = "real"
+    worker_version: str = "layer2-v1"
+    job_stderr_max_chars: int = 4000
+    job_progress_line_max_chars: int = 4096
+    cleanup_sweep_seconds: int = 60
+    retention_sweep_seconds: int = 300
+    job_stale_after_seconds: int = 600
+
     # Quota defaults (per-user overrides live in the users table)
     default_monthly_analysis_seconds: int = DEFAULT_MONTHLY_ANALYSIS_SECONDS
     default_max_active_analysis_jobs: int = 1
@@ -103,6 +116,14 @@ class Settings(BaseSettings):
             # tests work without extra setup.
             self.jwt_secret_key = "insecure-dev-secret-do-not-use-in-production"
         return self
+
+    @property
+    def effective_celery_broker_url(self) -> str:
+        return self.celery_broker_url or self.redis_url
+
+    @property
+    def effective_celery_result_backend(self) -> str:
+        return self.celery_result_backend or self.redis_url
 
 
 @lru_cache

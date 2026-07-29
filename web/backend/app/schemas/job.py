@@ -19,6 +19,8 @@ class AnalysisJobRead(BaseModel):
     current_step: str | None
     report_object_key: str | None
     failure_summary: str | None
+    event_version: int
+    cancel_requested_at: datetime | None
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -31,7 +33,12 @@ class ExportJobRead(BaseModel):
     project_id: uuid.UUID
     status: JobStatus
     progress: float
+    current_step: str | None
+    event_version: int
+    cancel_requested_at: datetime | None
+    selection_snapshot: list[dict]
     output_object_key: str | None
+    output_expires_at: datetime | None
     failure_summary: str | None
     created_at: datetime
     started_at: datetime | None

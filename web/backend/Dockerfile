@@ -1,10 +1,4 @@
-# Production image for the Breakpoint Web API.
-#
-# Deliberately does NOT install the analysis engine's heavy dependencies
-# (numpy/opencv/librosa/etc). This image only serves the FastAPI SaaS
-# backend (auth, projects, uploads, quota, admin) — analysis/export
-# execution happens in separate worker processes that are not part of
-# Layer 1.
+# Shared production image for the API, Celery worker, and Celery Beat.
 FROM python:3.12.10-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -17,17 +11,24 @@ WORKDIR /app
 # System deps needed to build psycopg2-binary/argon2-cffi wheels are not
 # required since both ship manylinux wheels for slim's glibc; libpq is
 # still needed at runtime for psycopg2-binary's bundled libpq to link.
-RUN groupadd --system app && useradd --system --gid app --home /app --shell /usr/sbin/nologin app
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ffmpeg libgl1 libglib2.0-0 libsndfile1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app \
+    && useradd --system --gid app --home /app --shell /usr/sbin/nologin app
 
 # Install dependencies before copying source so dependency layers cache
 # independently of application code changes.
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt ./requirements-engine.txt
+COPY web/backend/requirements.txt ./requirements-backend.txt
+RUN pip install --no-cache-dir -r requirements-engine.txt -r requirements-backend.txt
 
-COPY app ./app
-COPY alembic.ini ./alembic.ini
-COPY alembic ./alembic
-COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY engine ./engine
+COPY TennisHighlightAnalysis.py ./TennisHighlightAnalysis.py
+COPY web/backend/app ./app
+COPY web/backend/alembic.ini ./alembic.ini
+COPY web/backend/alembic ./alembic
+COPY web/backend/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 
 RUN chown -R app:app /app
