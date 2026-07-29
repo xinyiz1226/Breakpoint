@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import uuid
 from datetime import timedelta
 
@@ -229,6 +230,10 @@ def initiate_upload(
         and reusable_asset.analysis_reserved_seconds == 0
         and reusable_asset.storage_reserved_bytes == 0
         and reusable_asset.storage_counted_bytes == 0
+        and db.execute(
+            select(AnalysisJob.id).where(AnalysisJob.video_asset_id == reusable_asset.id)
+        ).first()
+        is None
     )
     if reusable_asset is not None and not reusable_asset_is_clean:
         raise HTTPException(
@@ -306,6 +311,7 @@ def initiate_upload(
     video_asset.duration_seconds = None
     video_asset.duration_status = None
     video_asset.retention_expires_at = None
+    video_asset.source_expired_at = None
     video_asset.preview_object_key = None
     video_asset.status = VideoAssetStatus.UPLOAD_INITIATED
     video_asset.upload_id = upload_id
@@ -340,11 +346,24 @@ def initiate_upload(
             status_code=status.HTTP_409_CONFLICT, detail="Project already has a video"
         ) from None
 
+    remaining_upload_seconds = max(
+        1,
+        math.ceil(
+            (
+                ensure_aware(upload_expires_at)
+                - ensure_aware(utcnow())
+            ).total_seconds()
+        ),
+    )
+    part_url_ttl_seconds = min(
+        settings.upload_part_presigned_url_ttl_seconds,
+        remaining_upload_seconds,
+    )
     part_urls = storage.generate_presigned_part_urls(
         object_key=object_key,
         upload_id=upload_id,
         part_lengths=part_lengths,
-        expires_in_seconds=settings.presigned_url_ttl_seconds,
+        expires_in_seconds=part_url_ttl_seconds,
     )
 
     # Provisionally reserve monthly analysis-seconds and storage-bytes quota
@@ -402,7 +421,7 @@ def initiate_upload(
             PartUploadUrl(part_number=n, url=url, content_length_bytes=length)
             for n, url, length in part_urls
         ],
-        expires_in_seconds=settings.presigned_url_ttl_seconds,
+        expires_in_seconds=part_url_ttl_seconds,
     )
 
 

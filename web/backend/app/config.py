@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_use_path_style: bool = True
     presigned_url_ttl_seconds: int = 3600
+    upload_part_presigned_url_ttl_seconds: int = 24 * 60 * 60
 
     # Uploads. Declared size/duration are validated by this layer at
     # initiate time; actual size is re-validated at finalize. Duration is

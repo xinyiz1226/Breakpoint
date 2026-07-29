@@ -72,6 +72,9 @@ class VideoAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     retention_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    source_expired_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     preview_object_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     status: Mapped[VideoAssetStatus] = mapped_column(

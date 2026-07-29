@@ -66,33 +66,33 @@ def test_register_sends_verification_email_and_creates_unverified_user(
     assert user.is_verified is False
 
 
-def test_register_duplicate_email_for_verified_account_is_rejected(
+def test_register_duplicate_email_for_verified_account_keeps_generic_response(
     client: TestClient, fake_email_sender: FakeEmailSender
 ) -> None:
     token = _register_and_get_verify_token(client, fake_email_sender)
     client.post("/api/v1/auth/verify-email", json={"token": token, "password": PASSWORD})
 
     response = client.post("/api/v1/auth/register", json={"email": EMAIL})
-    assert response.status_code == 409
+    assert response.status_code == 201
+    assert len(fake_email_sender.sent_emails) == 1
 
 
-def test_register_again_for_unverified_account_resends_a_fresh_verification_token(
+def test_repeated_register_preserves_valid_verification_link_and_sends_once(
     client: TestClient, fake_email_sender: FakeEmailSender, db_session: Session
 ) -> None:
-    first_token = _register_and_get_verify_token(client, fake_email_sender)
+    original_token = _register_and_get_verify_token(client, fake_email_sender)
 
-    response = client.post("/api/v1/auth/register", json={"email": EMAIL})
-    assert response.status_code == 201, response.text
-    assert len(fake_email_sender.sent_emails) == 2
-    second_token = fake_email_sender.last_email.token
-    assert second_token != first_token
+    for _ in range(5):
+        response = client.post("/api/v1/auth/register", json={"email": EMAIL})
+        assert response.status_code == 201, response.text
 
-    # The stale token from the first attempt was invalidated by the retry.
-    stale_verify = client.post("/api/v1/auth/verify-email", json={"token": first_token, "password": PASSWORD})
-    assert stale_verify.status_code == 400
+    assert len(fake_email_sender.sent_emails) == 1
 
-    fresh_verify = client.post("/api/v1/auth/verify-email", json={"token": second_token, "password": PASSWORD})
-    assert fresh_verify.status_code == 200
+    verify = client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": original_token, "password": PASSWORD},
+    )
+    assert verify.status_code == 200
 
     # No duplicate account was created.
     users = db_session.execute(select(User).where(User.email == EMAIL)).scalars().all()
@@ -364,35 +364,24 @@ def test_attacker_registered_email_cannot_choose_owners_password(
 ) -> None:
     """register never accepts a password at all, so an attacker who
     registers an email they do not control cannot pre-choose the
-    eventual credential. The real mailbox owner re-registering (a
-    resend, not a password choice) and then verifying with the latest
-    token, supplying their own chosen password, is the only way the
-    account ever gets a usable password. The stale token from the first
-    registration attempt must be dead.
+    eventual credential. Re-registration cannot rotate the mailbox
+    owner's valid link; the owner verifying that original link and
+    choosing a password is the only way the account becomes usable.
     """
     owner_password = "owner-chosen-password-B"
 
     register_a = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert register_a.status_code == 201, register_a.text
-    stale_token = fake_email_sender.last_email.token
+    original_token = fake_email_sender.last_email.token
 
     register_b = client.post("/api/v1/auth/register", json={"email": EMAIL})
     assert register_b.status_code == 201, register_b.text
-    latest_token = fake_email_sender.last_email.token
-    assert latest_token != stale_token
+    assert len(fake_email_sender.sent_emails) == 1
 
     verify_response = client.post(
-        "/api/v1/auth/verify-email", json={"token": latest_token, "password": owner_password}
+        "/api/v1/auth/verify-email", json={"token": original_token, "password": owner_password}
     )
     assert verify_response.status_code == 200, verify_response.text
-
-    # The stale token from the first (attacker's) registration attempt is
-    # dead and cannot be used to choose any password.
-    stale_verify = client.post(
-        "/api/v1/auth/verify-email",
-        json={"token": stale_token, "password": "attacker-chosen-password-A"},
-    )
-    assert stale_verify.status_code == 400
 
     # Only the mailbox owner's chosen password logs in.
     attacker_login = client.post(
@@ -405,10 +394,10 @@ def test_attacker_registered_email_cannot_choose_owners_password(
     assert owner_login.status_code == 200, owner_login.text
 
     # A further unauthenticated re-registration attempt after verification
-    # is rejected outright (already verified) and cannot affect the
+    # returns the same generic success and cannot affect the
     # chosen password either way.
     repeat_register = client.post("/api/v1/auth/register", json={"email": EMAIL})
-    assert repeat_register.status_code == 409
+    assert repeat_register.status_code == 201
     still_owner_login = client.post("/api/v1/auth/login", json={"email": EMAIL, "password": owner_password})
     assert still_owner_login.status_code == 200
 
@@ -753,7 +742,7 @@ def test_register_rechecks_verification_state_after_lock_despite_stale_preload(
     stale -- e.g. because it already touched the row earlier in a
     longer-lived transaction -- and session B concurrently verifies the
     account and commits, A's own populate_existing reselect at lock time
-    must observe the fresh (now verified) state and reject with 409
+    must observe the fresh (now verified) state and return generic success
     rather than trusting its stale unverified snapshot to invalidate/mint
     a new pending-password token."""
     from app.schemas.auth import RegisterRequest, VerifyEmailRequest
@@ -772,14 +761,13 @@ def test_register_rechecks_verification_state_after_lock_despite_stale_preload(
         auth.verify_email(VerifyEmailRequest(token=raw_token, password=PASSWORD), db=session_b)
         assert session_b.execute(select(User).where(User.id == user_id)).scalar_one().is_verified
 
-        with pytest.raises(HTTPException) as excinfo:
-            auth.register(
-                RegisterRequest(email=EMAIL),
-                db=session_a,
-                settings=test_settings,
-                email_sender=fake_email_sender,
-            )
-        assert excinfo.value.status_code == 409
+        response = auth.register(
+            RegisterRequest(email=EMAIL),
+            db=session_a,
+            settings=test_settings,
+            email_sender=fake_email_sender,
+        )
+        assert response.message.startswith("Registration successful")
 
         # No new pending-password verification token was minted from A's
         # stale, seemingly-still-unverified snapshot.

@@ -100,6 +100,7 @@ class FakeObjectStorage:
         self.on_delete_object: Callable[[], None] | None = None
         self.on_abort_multipart_upload: Callable[[], None] | None = None
         self.on_complete_multipart_upload: Callable[[], None] | None = None
+        self.last_part_url_ttl_seconds: int | None = None
 
     def generate_object_key(self, *, project_id: uuid.UUID, filename: str) -> str:
         suffix = PurePosixPath(filename).suffix.lower()
@@ -113,6 +114,7 @@ class FakeObjectStorage:
     def generate_presigned_part_urls(
         self, *, object_key: str, upload_id: str, part_lengths: list[int], expires_in_seconds: int
     ) -> list[tuple[int, str, int]]:
+        self.last_part_url_ttl_seconds = expires_in_seconds
         return [
             (n, f"https://fake-s3.test/{object_key}?part={n}&uploadId={upload_id}", length)
             for n, length in enumerate(part_lengths, start=1)

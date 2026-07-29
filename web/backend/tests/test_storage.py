@@ -132,7 +132,7 @@ def test_generate_presigned_part_urls_binds_content_length_per_part(storage: S3O
         object_key="projects/x/source/y.mp4",
         upload_id="upload-1",
         part_lengths=part_lengths,
-        expires_in_seconds=3600,
+        expires_in_seconds=86400,
     )
 
     assert [entry[0] for entry in urls] == [1, 2]
@@ -144,6 +144,7 @@ def test_generate_presigned_part_urls_binds_content_length_per_part(storage: S3O
         assert call["Params"]["ContentLength"] == expected_length
         assert call["Params"]["PartNumber"] == expected_part_number
         assert call["Params"]["UploadId"] == "upload-1"
+        assert call["ExpiresIn"] == 86400
 
 
 # --- Independent review round 2 item 1: narrow abort_multipart_upload idempotency --

@@ -21,6 +21,7 @@ export interface Project {
     | "finalizing"
     | "uploaded"
     | "upload_aborted"
+    | "source_expired"
     | "cleanup_pending"
     | null;
 }

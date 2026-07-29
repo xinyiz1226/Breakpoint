@@ -124,17 +124,27 @@ def register(
             .execution_options(populate_existing=True)
         ).scalar_one()
         if user.is_verified or not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+            db.commit()
+            return MessageResponse(
+                message="Registration successful. Check your email to verify your account."
             )
         now = utcnow()
-        # Unverified account retrying registration (e.g. the first
-        # verification email was never delivered, or the real mailbox
-        # owner re-registering after an attacker who doesn't control the
-        # mailbox registered first): invalidate any outstanding, unused
-        # verification tokens so only the newly minted one is redeemable.
-        # This also avoids permanently stranding a registrant behind a 409
-        # with no way to get a new email.
+        live_token = db.execute(
+            select(EmailToken).where(
+                EmailToken.user_id == user.id,
+                EmailToken.purpose == EmailTokenPurpose.VERIFY_EMAIL,
+                EmailToken.used_at.is_(None),
+                EmailToken.expires_at > now,
+            )
+        ).scalars().first()
+        if live_token is not None:
+            db.commit()
+            return MessageResponse(
+                message="Registration successful. Check your email to verify your account."
+            )
+
+        # Only expired or otherwise unusable links are replaced. This keeps
+        # anonymous retries from rotating a valid mailbox owner's link.
         stale_tokens = db.execute(
             select(EmailToken).where(
                 EmailToken.user_id == user.id,
@@ -157,17 +167,28 @@ def register(
         db.flush()
 
     raw_token = generate_opaque_token()
-    db.add(
-        EmailToken(
-            user_id=user.id,
-            purpose=EmailTokenPurpose.VERIFY_EMAIL,
-            token_hash=hash_token(raw_token),
-            expires_at=utcnow() + timedelta(hours=settings.email_verification_ttl_hours),
-        )
+    email_token = EmailToken(
+        user_id=user.id,
+        purpose=EmailTokenPurpose.VERIFY_EMAIL,
+        token_hash=hash_token(raw_token),
+        expires_at=utcnow() + timedelta(hours=settings.email_verification_ttl_hours),
     )
+    db.add(email_token)
     db.commit()
 
-    _send_verification_email_or_fail(email_sender, settings, to_address=user.email, raw_token=raw_token)
+    try:
+        _send_verification_email_or_fail(
+            email_sender,
+            settings,
+            to_address=user.email,
+            raw_token=raw_token,
+        )
+    except HTTPException:
+        # A token known not to have been delivered must not suppress a
+        # legitimate retry for its full TTL.
+        email_token.used_at = utcnow()
+        db.commit()
+        raise
 
     return MessageResponse(message="Registration successful. Check your email to verify your account.")
 

@@ -42,6 +42,7 @@ class VideoAssetStatus(str, enum.Enum):
     FINALIZING = "finalizing"
     UPLOADED = "uploaded"
     UPLOAD_ABORTED = "upload_aborted"
+    SOURCE_EXPIRED = "source_expired"
     # A finalize integrity failure or project tombstone queued a durable
     # StorageCleanupTask for this asset's object/multipart upload; the
     # object may still exist until that task completes.

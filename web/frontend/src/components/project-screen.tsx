@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ApiError, api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import type { AnalysisJob, Project } from "@/lib/types";
@@ -45,6 +46,15 @@ export function ProjectScreen({ projectId }: { projectId: string }) {
       <div className="workspace-title"><span>MATCH ROOM</span><strong>{project.name}</strong></div>
       {job ? (
         <JobProgress projectId={projectId} initial={job} />
+      ) : project.video_asset_status === "source_expired" ? (
+        <section className="error-state">
+          <p className="eyebrow">SOURCE RETENTION / 7 DAYS</p>
+          <h1>{t("sourceExpired")}</h1>
+          <p>{t("sourceExpiredHint")}</p>
+          <Link className="button primary" href="/projects">
+            {t("createNewMatch")}
+          </Link>
+        </section>
       ) : uploadPending ? (
         <div className="content-status full">
           <span className="spinner" />

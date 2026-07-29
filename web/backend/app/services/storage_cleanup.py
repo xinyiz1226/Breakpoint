@@ -329,8 +329,13 @@ def _complete_claim(
         reservation_service.release_analysis_reservation(db, video_asset)
         reservation_service.release_storage_reservation(db, video_asset)
         reservation_service.release_counted_storage_bytes(db, video_asset)
-        if video_asset.status != VideoAssetStatus.UPLOAD_ABORTED:
-            video_asset.status = VideoAssetStatus.UPLOAD_ABORTED
+        terminal_status = (
+            VideoAssetStatus.SOURCE_EXPIRED
+            if video_asset.source_expired_at is not None
+            else VideoAssetStatus.UPLOAD_ABORTED
+        )
+        if video_asset.status != terminal_status:
+            video_asset.status = terminal_status
 
     db.commit()
 

@@ -1293,6 +1293,24 @@ def test_initiate_upload_exposes_content_length_bytes_summing_to_declared_size(
     assert part_urls[1]["content_length_bytes"] == DECLARED_SIZE // 2
 
 
+def test_initiate_upload_part_urls_cover_the_remaining_24_hour_session(
+    client: TestClient,
+    db_session: Session,
+    fake_storage: FakeObjectStorage,
+    test_settings,
+) -> None:
+    test_settings.multipart_upload_ttl_hours = 24
+    test_settings.upload_part_presigned_url_ttl_seconds = 48 * 60 * 60
+    token, project_id = _authenticated_project(client, db_session)
+
+    response = _initiate_upload(client, token, project_id)
+
+    assert response.status_code == 201, response.text
+    expires_in_seconds = response.json()["expires_in_seconds"]
+    assert 24 * 60 * 60 - 2 <= expires_in_seconds <= 24 * 60 * 60
+    assert fake_storage.last_part_url_ttl_seconds == expires_in_seconds
+
+
 def test_initiate_upload_allows_a_single_part_below_the_minimum_part_size(
     client: TestClient, db_session: Session, test_settings
 ) -> None:
