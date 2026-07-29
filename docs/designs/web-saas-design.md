@@ -362,10 +362,13 @@ to H.264/AAC MP4, uploads the result, and gives it a seven-day expiry. Later ral
 edits do not affect a retry.
 
 Workers create delayed durable cleanup intents before publishing report, preview,
-or export objects. A success transaction can cancel only pristine, never-claimed
-intents. If cleanup has started or completed, publication loses the race and the
-job fails safely for retry instead of reviving a deleted object or overwriting
-cleanup history.
+or export objects. Creation and publication serialize on the owning project and
+publication locks every cleanup generation for the artifact key. A success
+transaction proceeds only when all predecessors are terminal and the current
+intent is pristine, verifies the uploaded object still exists, rechecks that no
+generation appeared during verification, and then cancels the current intent. If
+cleanup can still execute, publication loses the race and the job fails safely
+for retry instead of reviving a deleted object or overwriting cleanup history.
 
 SSE progress uses the persisted monotonic `event_version` as its event ID.
 Authorization and every snapshot read use short-lived sessions; no transaction

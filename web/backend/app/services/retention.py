@@ -16,6 +16,7 @@ from app.models.enums import (
     VideoAssetStatus,
 )
 from app.models.job import AnalysisJob, ExportJob
+from app.models.project import Project
 from app.models.user import User
 from app.models.video import VideoAsset
 from app.services import storage_cleanup
@@ -30,6 +31,7 @@ def _get_or_create_unbound_task(
 ) -> StorageCleanupTask:
     task = db.execute(
         select(StorageCleanupTask).where(
+            StorageCleanupTask.project_id == project_id,
             StorageCleanupTask.video_asset_id.is_(None),
             StorageCleanupTask.object_key == object_key,
             StorageCleanupTask.operation == StorageCleanupOperation.DELETE_OBJECT,
@@ -60,8 +62,13 @@ def _cleanup_unbound_object(
     storage: ObjectStorage,
     *,
     project_id,
+    owner_id,
     object_key: str,
 ) -> bool:
+    db.execute(select(User).where(User.id == owner_id).with_for_update()).scalar_one()
+    db.execute(
+        select(Project).where(Project.id == project_id).with_for_update()
+    ).scalar_one()
     task = _get_or_create_unbound_task(
         db, project_id=project_id, object_key=object_key
     )
@@ -94,6 +101,9 @@ def run_retention_cleanup(
     for candidate in assets:
         db.execute(
             select(User).where(User.id == candidate.owner_id).with_for_update()
+        ).scalar_one()
+        db.execute(
+            select(Project).where(Project.id == candidate.project_id).with_for_update()
         ).scalar_one()
         asset = db.execute(
             select(VideoAsset)
@@ -197,7 +207,11 @@ def run_retention_cleanup(
         key = export.output_object_key
         assert key is not None
         if _cleanup_unbound_object(
-            db, storage, project_id=export.project_id, object_key=key
+            db,
+            storage,
+            project_id=export.project_id,
+            owner_id=export.owner_id,
+            object_key=key,
         ):
             export = db.get(ExportJob, export.id)
             export.output_object_key = None

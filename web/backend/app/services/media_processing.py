@@ -42,6 +42,10 @@ from app.services.storage import ObjectStorage
 AUTO_INCLUDE_SCORE = 1.7
 
 
+class ArtifactPublicationBlocked(RuntimeError):
+    pass
+
+
 class MediaTools(Protocol):
     def probe(self, source: Path, *, cancelled=None) -> MediaProbe: ...
 
@@ -60,6 +64,19 @@ class MediaTools(Protocol):
 
 def _lock_user(db: Session, user_id: uuid.UUID) -> None:
     db.execute(select(User).where(User.id == user_id).with_for_update()).scalar_one()
+
+
+def _lock_artifact_project(db: Session, project_id: uuid.UUID) -> Project:
+    preview = db.get(Project, project_id)
+    if preview is None:
+        raise JobCancelled()
+    _lock_user(db, preview.owner_id)
+    return db.execute(
+        select(Project)
+        .where(Project.id == project_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
 
 
 def _analysis_cancelled(
@@ -467,6 +484,7 @@ def _create_artifact_cleanup_intent(
     object_key: str,
 ) -> uuid.UUID:
     with factory() as db:
+        _lock_artifact_project(db, project_id)
         task = storage_cleanup_service.get_or_create_cleanup_task(
             db,
             project_id=project_id,
@@ -484,21 +502,47 @@ def _renew_artifact_cleanup_intent(
     factory: sessionmaker, task_id: uuid.UUID
 ) -> uuid.UUID:
     with factory() as db:
+        preview = db.get(StorageCleanupTask, task_id)
+        if preview is None or preview.project_id is None:
+            raise ArtifactPublicationBlocked("Artifact cleanup intent is unavailable")
+        _lock_artifact_project(db, preview.project_id)
         task = db.execute(
             select(StorageCleanupTask)
             .where(StorageCleanupTask.id == task_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one()
+        lineage = db.execute(
+            select(StorageCleanupTask)
+            .where(
+                StorageCleanupTask.project_id == task.project_id,
+                StorageCleanupTask.video_asset_id.is_(None),
+                StorageCleanupTask.object_key == task.object_key,
+                StorageCleanupTask.operation == task.operation,
+            )
+            .order_by(StorageCleanupTask.generation, StorageCleanupTask.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalars().all()
         not_before = utcnow() + timedelta(hours=6)
         if (
             task.status == StorageCleanupStatus.PENDING
             and task.attempts == 0
             and task.lease_token is None
+            and all(
+                predecessor.id == task.id
+                or predecessor.status
+                in (
+                    StorageCleanupStatus.COMPLETED,
+                    StorageCleanupStatus.CANCELLED,
+                )
+                for predecessor in lineage
+            )
         ):
             task.not_before = not_before
             db.commit()
             return task.id
+        next_generation = max(item.generation for item in lineage) + 1
         successor = storage_cleanup_service.get_or_create_cleanup_task(
             db,
             project_id=task.project_id,
@@ -506,45 +550,119 @@ def _renew_artifact_cleanup_intent(
             object_key=task.object_key,
             upload_id=None,
             operation=StorageCleanupOperation.DELETE_OBJECT,
-            generation=task.generation + 1,
+            generation=next_generation,
             not_before=not_before,
         )
+        has_executable_predecessor = any(
+            predecessor.status
+            not in (
+                StorageCleanupStatus.COMPLETED,
+                StorageCleanupStatus.CANCELLED,
+            )
+            for predecessor in lineage
+        )
         db.commit()
+        if has_executable_predecessor:
+            raise ArtifactPublicationBlocked(
+                "Artifact cleanup is still active; retry the job"
+            )
         return successor.id
 
 
 def _claim_artifact_publication(
-    db: Session, task_ids: list[uuid.UUID]
+    db: Session,
+    storage: ObjectStorage,
+    task_ids: list[uuid.UUID],
 ) -> bool:
-    tasks = db.execute(
-        select(StorageCleanupTask)
-        .where(StorageCleanupTask.id.in_(task_ids))
-        .order_by(StorageCleanupTask.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    # Project locking by every lineage creator prevents phantom generations
+    # on Postgres. The post-HEAD identity check is defense in depth and makes
+    # the same invariant explicit on backends without row-lock enforcement.
+    previews = db.execute(
+        select(StorageCleanupTask).where(StorageCleanupTask.id.in_(task_ids))
     ).scalars().all()
-    pristine = len(tasks) == len(task_ids) and all(
-        task.status == StorageCleanupStatus.PENDING
-        and task.attempts == 0
-        and task.lease_token is None
-        for task in tasks
-    )
-    if pristine:
-        for task in tasks:
-            task.status = StorageCleanupStatus.CANCELLED
-            task.lease_token = uuid.uuid4()
-        return True
-    for task in tasks:
-        storage_cleanup_service.get_or_create_cleanup_task(
-            db,
-            project_id=task.project_id,
-            video_asset_id=None,
-            object_key=task.object_key,
-            upload_id=None,
-            operation=StorageCleanupOperation.DELETE_OBJECT,
-            generation=task.generation + 1,
+    if len(previews) != len(task_ids):
+        return False
+
+    current_tasks: list[StorageCleanupTask] = []
+    lineages: list[list[StorageCleanupTask]] = []
+    for preview in sorted(previews, key=lambda item: item.object_key):
+        lineage = db.execute(
+            select(StorageCleanupTask)
+            .where(
+                StorageCleanupTask.project_id == preview.project_id,
+                StorageCleanupTask.video_asset_id.is_(None),
+                StorageCleanupTask.object_key == preview.object_key,
+                StorageCleanupTask.operation == preview.operation,
+            )
+            .order_by(StorageCleanupTask.generation, StorageCleanupTask.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalars().all()
+        current = next((item for item in lineage if item.id == preview.id), None)
+        if current is None:
+            return False
+        current_tasks.append(current)
+        lineages.append(lineage)
+
+    publishable = all(
+        current.status == StorageCleanupStatus.PENDING
+        and current.attempts == 0
+        and current.lease_token is None
+        and all(
+            predecessor.id == current.id
+            or predecessor.status
+            in (
+                StorageCleanupStatus.COMPLETED,
+                StorageCleanupStatus.CANCELLED,
+            )
+            for predecessor in lineage
         )
-    return False
+        for current, lineage in zip(current_tasks, lineages, strict=True)
+    )
+    if not publishable:
+        for current, lineage in zip(current_tasks, lineages, strict=True):
+            if current.status in (
+                StorageCleanupStatus.COMPLETED,
+                StorageCleanupStatus.CANCELLED,
+            ):
+                storage_cleanup_service.get_or_create_cleanup_task(
+                    db,
+                    project_id=current.project_id,
+                    video_asset_id=None,
+                    object_key=current.object_key,
+                    upload_id=None,
+                    operation=StorageCleanupOperation.DELETE_OBJECT,
+                    generation=max(item.generation for item in lineage) + 1,
+                )
+        return False
+
+    lineage_ids = {
+        current.id: frozenset(item.id for item in lineage)
+        for current, lineage in zip(current_tasks, lineages, strict=True)
+    }
+    for task in current_tasks:
+        storage.head_object(object_key=task.object_key)
+
+    for task in current_tasks:
+        refreshed = db.execute(
+            select(StorageCleanupTask)
+            .where(
+                StorageCleanupTask.project_id == task.project_id,
+                StorageCleanupTask.video_asset_id.is_(None),
+                StorageCleanupTask.object_key == task.object_key,
+                StorageCleanupTask.operation == task.operation,
+            )
+            .order_by(StorageCleanupTask.generation, StorageCleanupTask.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalars().all()
+        if frozenset(item.id for item in refreshed) != lineage_ids[task.id]:
+            return False
+
+    for task in current_tasks:
+        task.status = StorageCleanupStatus.CANCELLED
+        task.lease_token = uuid.uuid4()
+    return True
 
 
 def process_analysis_job(
@@ -669,6 +787,12 @@ def process_analysis_job(
                 preview = db.get(AnalysisJob, job_id)
                 assert preview is not None
                 _lock_user(db, preview.owner_id)
+                project = db.execute(
+                    select(Project)
+                    .where(Project.id == project_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).scalar_one_or_none()
                 asset = db.execute(
                     select(VideoAsset)
                     .where(VideoAsset.id == preview.video_asset_id)
@@ -685,7 +809,6 @@ def process_analysis_job(
                 if job is None:
                     db.commit()
                     raise JobCancelled()
-                project = db.get(Project, project_id)
                 if job.cancel_requested_at is not None:
                     _cancel_analysis_locked(db, job, "Analysis cancelled")
                     db.commit()
@@ -698,7 +821,7 @@ def process_analysis_job(
                     db.commit()
                     raise JobCancelled()
 
-                if not _claim_artifact_publication(db, artifact_task_ids):
+                if not _claim_artifact_publication(db, storage, artifact_task_ids):
                     reservation_service.release_analysis_reservation(db, asset)
                     _record_marker_once(
                         db,
@@ -925,7 +1048,7 @@ def process_export_job(
                     db.commit()
                     raise JobCancelled()
                 assert artifact_task_id is not None
-                if not _claim_artifact_publication(db, [artifact_task_id]):
+                if not _claim_artifact_publication(db, storage, [artifact_task_id]):
                     job.status = JobStatus.FAILED
                     job.failure_summary = (
                         "Artifact cleanup started before publication; retry the job"

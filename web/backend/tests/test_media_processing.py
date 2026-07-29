@@ -17,7 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models.enums import JobStatus, QuotaLedgerEventType, VideoAssetStatus
+from app.models.enums import (
+    JobStatus,
+    QuotaLedgerEventType,
+    StorageCleanupOperation,
+    VideoAssetStatus,
+)
 from app.models.cleanup import StorageCleanupTask
 from app.models.enums import StorageCleanupStatus
 from app.models.job import AnalysisJob, ExportJob
@@ -26,6 +31,7 @@ from app.models.quota import QuotaLedgerEntry
 from app.models.rally import Rally
 from app.models.video import VideoAsset
 from app.services import media_processing as media_processing_service
+from app.services import storage_cleanup as storage_cleanup_service
 from app.services.media_processing import (
     MediaProbe,
     process_analysis_job,
@@ -632,6 +638,127 @@ def test_completed_cleanup_before_upload_gets_successor_intent(
     ).scalars().all()
     assert [task.status for task in tasks].count(StorageCleanupStatus.COMPLETED) == 1
     assert [task.status for task in tasks].count(StorageCleanupStatus.CANCELLED) == 1
+
+
+def test_running_cleanup_predecessor_blocks_successor_publication(
+    monkeypatch,
+    session_factory,
+    db_session: Session,
+    fake_storage: FakeObjectStorage,
+    test_settings: Settings,
+) -> None:
+    job = _create_analysis_job(db_session, fake_storage)
+    tools = FakeMediaTools(
+        probe_result=MediaProbe(120, "mp4", "h264", "aac"),
+        report=_report(),
+    )
+    predecessor_lease = uuid.uuid4()
+
+    def create_running_predecessor(
+        factory, *, project_id: uuid.UUID, object_key: str
+    ) -> uuid.UUID:
+        with factory() as session:
+            task = StorageCleanupTask(
+                project_id=project_id,
+                video_asset_id=None,
+                object_key=object_key,
+                upload_id=None,
+                operation=StorageCleanupOperation.DELETE_OBJECT,
+                status=StorageCleanupStatus.RUNNING,
+                attempts=1,
+                lease_token=predecessor_lease,
+                generation=0,
+            )
+            session.add(task)
+            session.commit()
+            return task.id
+
+    monkeypatch.setattr(
+        media_processing_service,
+        "_create_artifact_cleanup_intent",
+        create_running_predecessor,
+    )
+
+    process_analysis_job(
+        session_factory, fake_storage, tools, job.id, settings=test_settings
+    )
+
+    tasks = db_session.execute(
+        select(StorageCleanupTask)
+        .where(StorageCleanupTask.video_asset_id.is_(None))
+        .order_by(StorageCleanupTask.generation)
+    ).scalars().all()
+    assert [task.generation for task in tasks] == [0, 1]
+    fake_storage.delete_object(object_key=tasks[0].object_key)
+    storage_cleanup_service._complete_claim(
+        db_session,
+        tasks[0].id,
+        predecessor_lease,
+        failed=False,
+    )
+
+    db_session.expire_all()
+    persisted = db_session.get(AnalysisJob, job.id)
+    assert persisted.status == JobStatus.FAILED
+    assert persisted.report_object_key is None
+    assert tasks[0].object_key not in fake_storage.objects
+
+
+def test_cleanup_generation_inserted_during_head_blocks_publication(
+    session_factory,
+    db_session: Session,
+    fake_storage: FakeObjectStorage,
+    test_settings: Settings,
+) -> None:
+    job = _create_analysis_job(db_session, fake_storage)
+    tools = FakeMediaTools(
+        probe_result=MediaProbe(120, "mp4", "h264", "aac"),
+        report=_report(),
+    )
+    original_head = fake_storage.head_object
+    inserted = False
+
+    def head_with_phantom_generation(*, object_key: str):
+        nonlocal inserted
+        metadata = original_head(object_key=object_key)
+        if not inserted:
+            inserted = True
+            with session_factory() as session:
+                current = session.execute(
+                    select(StorageCleanupTask)
+                    .where(StorageCleanupTask.object_key == object_key)
+                    .order_by(StorageCleanupTask.generation.desc())
+                ).scalars().first()
+                assert current is not None
+                session.add(
+                    StorageCleanupTask(
+                        project_id=current.project_id,
+                        video_asset_id=None,
+                        object_key=object_key,
+                        upload_id=None,
+                        operation=StorageCleanupOperation.DELETE_OBJECT,
+                        status=StorageCleanupStatus.PENDING,
+                        generation=current.generation + 1,
+                    )
+                )
+                session.commit()
+        return metadata
+
+    fake_storage.head_object = head_with_phantom_generation
+
+    process_analysis_job(
+        session_factory, fake_storage, tools, job.id, settings=test_settings
+    )
+
+    db_session.expire_all()
+    persisted = db_session.get(AnalysisJob, job.id)
+    assert persisted.status == JobStatus.FAILED
+    assert persisted.report_object_key is None
+    tasks = db_session.execute(
+        select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id.is_(None))
+    ).scalars().all()
+    assert len(tasks) == 2
+    assert all(task.status == StorageCleanupStatus.PENDING for task in tasks)
 
 
 def test_stale_running_analysis_is_reclaimed_with_a_new_lease(
