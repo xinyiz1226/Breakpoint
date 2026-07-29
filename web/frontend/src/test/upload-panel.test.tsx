@@ -158,5 +158,16 @@ describe("UploadPanel", () => {
     expect(finalizeSignal?.aborted).toBe(true);
     expect(api.abortUpload).toHaveBeenCalledWith("project-1", "asset-finalizing");
     expect(onComplete).not.toHaveBeenCalled();
+
+    const failedAbort = Promise.reject(new Error("offline"));
+    void failedAbort.catch(() => undefined);
+    const catchRejection = vi.spyOn(failedAbort, "catch");
+    vi.mocked(api.abortUpload).mockReturnValueOnce(failedAbort);
+    view.unmount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(catchRejection).toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });

@@ -59,7 +59,9 @@ export function UploadPanel({
       controllerRef.current?.abort();
       const active = activeUploadRef.current;
       if (active) {
-        void api.abortUpload(projectId, active.initiated.video_asset_id);
+        void api
+          .abortUpload(projectId, active.initiated.video_asset_id)
+          .catch(() => undefined);
       }
     };
   }, [projectId]);
