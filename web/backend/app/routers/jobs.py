@@ -13,7 +13,13 @@ from app.config import Settings, get_settings
 from app.db import get_db, get_session_factory
 from app.deps import get_current_user, get_storage, get_stream_session_factory
 from app.models.base import ensure_aware, utcnow
-from app.models.enums import JobStatus, QuotaLedgerEventType, VideoDurationStatus
+from app.models.enums import (
+    ACTIVE_JOB_STATUSES,
+    JobStatus,
+    QuotaLedgerEventType,
+    VideoAssetStatus,
+    VideoDurationStatus,
+)
 from app.models.job import AnalysisJob, ExportJob
 from app.models.project import Project
 from app.models.rally import Rally, RallyEdit
@@ -105,6 +111,44 @@ def _analysis_job(
     if job is None:
         raise HTTPException(status_code=404, detail="Analysis job not found")
     return job
+
+
+def _lock_live_export_source(
+    db: Session, project_id: uuid.UUID, owner_id: uuid.UUID
+) -> VideoAsset:
+    asset = db.execute(
+        select(VideoAsset)
+        .where(
+            VideoAsset.project_id == project_id,
+            VideoAsset.owner_id == owner_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if (
+        asset is None
+        or asset.status != VideoAssetStatus.UPLOADED
+        or not asset.object_key
+        or asset.retention_expires_at is None
+        or ensure_aware(asset.retention_expires_at) <= ensure_aware(utcnow())
+    ):
+        raise HTTPException(
+            status_code=409, detail="Source video is unavailable or expired"
+        )
+    return asset
+
+
+def _require_no_active_export(
+    db: Session, project_id: uuid.UUID, *, excluding: uuid.UUID | None = None
+) -> None:
+    stmt = select(ExportJob.id).where(
+        ExportJob.project_id == project_id,
+        ExportJob.status.in_(list(ACTIVE_JOB_STATUSES)),
+    )
+    if excluding is not None:
+        stmt = stmt.where(ExportJob.id != excluding)
+    if db.execute(stmt).first() is not None:
+        raise HTTPException(status_code=409, detail="An export is already active")
 
 
 @router.get("/analysis", response_model=AnalysisJobRead)
@@ -283,6 +327,8 @@ def create_export(
         select(User).where(User.id == current_user.id).with_for_update()
     ).scalar_one()
     _lock_project(db, project_id, current_user.id)
+    _lock_live_export_source(db, project_id, current_user.id)
+    _require_no_active_export(db, project_id)
     analysis = _analysis_job(db, project_id, current_user.id)
     if analysis.status != JobStatus.SUCCEEDED:
         raise HTTPException(status_code=409, detail="Analysis must succeed before export")
@@ -403,6 +449,8 @@ def retry_export(
         select(User).where(User.id == current_user.id).with_for_update()
     ).scalar_one()
     _lock_project(db, project_id, current_user.id)
+    _lock_live_export_source(db, project_id, current_user.id)
+    _require_no_active_export(db, project_id, excluding=export_job_id)
     job = db.execute(
         select(ExportJob)
         .where(

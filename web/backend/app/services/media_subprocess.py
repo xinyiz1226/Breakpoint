@@ -62,28 +62,45 @@ def run_capture_process(
 
 
 def _terminate_process_group(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
     if os.name == "nt":
+        if process.poll() is not None:
+            return
         subprocess.run(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],
             capture_output=True,
             check=False,
         )
-    else:
-        os.killpg(process.pid, signal.SIGTERM)
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        if os.name == "nt":
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
             subprocess.run(
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                 capture_output=True,
                 check=False,
             )
-        else:
+            process.wait(timeout=5)
+        return
+
+    process_group_id = process.pid
+    try:
+        os.killpg(process_group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        process.wait()
+        return
+
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        try:
             os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=5)
+        except ProcessLookupError:
+            pass
+    process.wait(timeout=5)
 
 
 def run_json_progress_process(

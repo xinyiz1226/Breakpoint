@@ -90,7 +90,8 @@ desktop edit convention: `included`, `adjusted_start`, `adjusted_end`.
 - `GET /api/v1/projects/{id}/rallies` and
   `PATCH /api/v1/projects/{id}/rallies/{rally_id}` — review and autosave edits.
 - `POST /api/v1/projects/{id}/exports` — atomically snapshots the current
-  included/trimmed rally selection before enqueue.
+  included/trimmed rally selection before enqueue. Creation and retry return
+  `409` when the source is expired/unavailable or another export is active.
 - `GET /api/v1/projects/{id}/exports/{export_job_id}` plus `/cancel`, `/retry`,
   `/events`, and `/signed-url` — export lifecycle, SSE, and seven-day download.
 

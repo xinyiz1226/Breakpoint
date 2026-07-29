@@ -152,6 +152,7 @@ def _touch_lease(
                 model.id == job_id,
                 model.lease_token == lease_token,
                 model.status == JobStatus.RUNNING,
+                model.cancel_requested_at.is_(None),
             )
         ).scalar_one_or_none()
         if job is None:
@@ -212,7 +213,11 @@ def _update_analysis_progress(
     with factory() as db:
         job = db.execute(
             select(AnalysisJob)
-            .where(AnalysisJob.id == job_id, AnalysisJob.lease_token == lease_token)
+            .where(
+                AnalysisJob.id == job_id,
+                AnalysisJob.lease_token == lease_token,
+                AnalysisJob.cancel_requested_at.is_(None),
+            )
             .with_for_update()
         ).scalar_one_or_none()
         if job is None or job.status != JobStatus.RUNNING:
@@ -232,7 +237,11 @@ def _update_export_progress(
     with factory() as db:
         job = db.execute(
             select(ExportJob)
-            .where(ExportJob.id == job_id, ExportJob.lease_token == lease_token)
+            .where(
+                ExportJob.id == job_id,
+                ExportJob.lease_token == lease_token,
+                ExportJob.cancel_requested_at.is_(None),
+            )
             .with_for_update()
         ).scalar_one_or_none()
         if job is None or job.status != JobStatus.RUNNING:
@@ -471,17 +480,71 @@ def _create_artifact_cleanup_intent(
         return task.id
 
 
-def _cancel_artifact_cleanup_intents(
-    db: Session, task_ids: list[uuid.UUID]
-) -> None:
-    for task_id in task_ids:
+def _renew_artifact_cleanup_intent(
+    factory: sessionmaker, task_id: uuid.UUID
+) -> uuid.UUID:
+    with factory() as db:
         task = db.execute(
             select(StorageCleanupTask)
             .where(StorageCleanupTask.id == task_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one()
-        task.status = StorageCleanupStatus.CANCELLED
-        task.lease_token = uuid.uuid4()
+        not_before = utcnow() + timedelta(hours=6)
+        if (
+            task.status == StorageCleanupStatus.PENDING
+            and task.attempts == 0
+            and task.lease_token is None
+        ):
+            task.not_before = not_before
+            db.commit()
+            return task.id
+        successor = storage_cleanup_service.get_or_create_cleanup_task(
+            db,
+            project_id=task.project_id,
+            video_asset_id=None,
+            object_key=task.object_key,
+            upload_id=None,
+            operation=StorageCleanupOperation.DELETE_OBJECT,
+            generation=task.generation + 1,
+            not_before=not_before,
+        )
+        db.commit()
+        return successor.id
+
+
+def _claim_artifact_publication(
+    db: Session, task_ids: list[uuid.UUID]
+) -> bool:
+    tasks = db.execute(
+        select(StorageCleanupTask)
+        .where(StorageCleanupTask.id.in_(task_ids))
+        .order_by(StorageCleanupTask.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalars().all()
+    pristine = len(tasks) == len(task_ids) and all(
+        task.status == StorageCleanupStatus.PENDING
+        and task.attempts == 0
+        and task.lease_token is None
+        for task in tasks
+    )
+    if pristine:
+        for task in tasks:
+            task.status = StorageCleanupStatus.CANCELLED
+            task.lease_token = uuid.uuid4()
+        return True
+    for task in tasks:
+        storage_cleanup_service.get_or_create_cleanup_task(
+            db,
+            project_id=task.project_id,
+            video_asset_id=None,
+            object_key=task.object_key,
+            upload_id=None,
+            operation=StorageCleanupOperation.DELETE_OBJECT,
+            generation=task.generation + 1,
+        )
+    return False
 
 
 def process_analysis_job(
@@ -511,6 +574,12 @@ def process_analysis_job(
                 )
             )
             probe = tools.probe(source, cancelled=cancelled)
+            authoritative_duration = float(probe.duration_seconds)
+            if (
+                not math.isfinite(authoritative_duration)
+                or authoritative_duration <= 0
+            ):
+                raise ValueError("Media duration must be finite and greater than zero")
             with factory() as db:
                 job = db.execute(
                     select(AnalysisJob).where(
@@ -525,7 +594,7 @@ def process_analysis_job(
                     db,
                     video_asset_id=job.video_asset_id,
                     analysis_job_id=job.id,
-                    authoritative_duration_seconds=probe.duration_seconds,
+                    authoritative_duration_seconds=authoritative_duration,
                     settings=settings,
                     commit=False,
                 )
@@ -559,7 +628,7 @@ def process_analysis_job(
             report_path = tools.analyze(
                 source, output_dir, cancelled=cancelled, progress=progress
             )
-            rallies = _validate_report(report_path, probe.duration_seconds)
+            rallies = _validate_report(report_path, authoritative_duration)
             report_key = (
                 f"projects/{project_id}/reports/{job_id}/"
                 f"{lease_token}/full_report.json"
@@ -574,6 +643,9 @@ def process_analysis_job(
                 for key in artifact_keys
             ]
             if preview_key is not None:
+                artifact_task_ids[1] = _renew_artifact_cleanup_intent(
+                    factory, artifact_task_ids[1]
+                )
                 with _storage_heartbeat(
                     factory, AnalysisJob, job_id, lease_token, settings
                 ):
@@ -582,6 +654,9 @@ def process_analysis_job(
                         object_key=preview_key,
                         content_type="video/mp4",
                     )
+            artifact_task_ids[0] = _renew_artifact_cleanup_intent(
+                factory, artifact_task_ids[0]
+            )
             with _storage_heartbeat(
                 factory, AnalysisJob, job_id, lease_token, settings
             ):
@@ -623,6 +698,23 @@ def process_analysis_job(
                     db.commit()
                     raise JobCancelled()
 
+                if not _claim_artifact_publication(db, artifact_task_ids):
+                    reservation_service.release_analysis_reservation(db, asset)
+                    _record_marker_once(
+                        db,
+                        job=job,
+                        asset=asset,
+                        event_type=QuotaLedgerEventType.ANALYSIS_FAILED,
+                    )
+                    job.status = JobStatus.FAILED
+                    job.failure_summary = (
+                        "Artifact cleanup started before publication; retry the job"
+                    )
+                    job.failure_detail = None
+                    job.finished_at = utcnow()
+                    job.event_version += 1
+                    db.commit()
+                    return
                 reservation_month = job.accounting_month or asset.analysis_reservation_month
                 duration = float(asset.duration_seconds or 0)
                 reservation_service.release_analysis_reservation(db, asset)
@@ -659,7 +751,6 @@ def process_analysis_job(
                 job.failure_summary = None
                 job.failure_detail = None
                 job.event_version += 1
-                _cancel_artifact_cleanup_intents(db, artifact_task_ids)
                 db.commit()
     except JobCancelled:
         _finish_analysis_cancelled(factory, job_id, lease_token)
@@ -785,6 +876,9 @@ def process_export_job(
             artifact_task_id = _create_artifact_cleanup_intent(
                 factory, project_id=project_id, object_key=uploaded_key
             )
+            artifact_task_id = _renew_artifact_cleanup_intent(
+                factory, artifact_task_id
+            )
             with _storage_heartbeat(
                 factory, ExportJob, job_id, lease_token, settings
             ):
@@ -830,6 +924,17 @@ def process_export_job(
                 ):
                     db.commit()
                     raise JobCancelled()
+                assert artifact_task_id is not None
+                if not _claim_artifact_publication(db, [artifact_task_id]):
+                    job.status = JobStatus.FAILED
+                    job.failure_summary = (
+                        "Artifact cleanup started before publication; retry the job"
+                    )
+                    job.failure_detail = None
+                    job.finished_at = utcnow()
+                    job.event_version += 1
+                    db.commit()
+                    return
                 job.status = JobStatus.SUCCEEDED
                 job.progress = 1.0
                 job.current_step = "Complete"
@@ -839,7 +944,6 @@ def process_export_job(
                 )
                 job.finished_at = utcnow()
                 job.event_version += 1
-                _cancel_artifact_cleanup_intents(db, [artifact_task_id])
                 db.commit()
                 uploaded_key = None
     except JobCancelled:

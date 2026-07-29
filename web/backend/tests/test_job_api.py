@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.base import utcnow
@@ -31,6 +33,7 @@ def _project_with_rallies(db: Session, *, email: str) -> tuple[Project, Analysis
         actual_size_bytes=10,
         declared_duration_seconds=100,
         duration_seconds=100,
+        retention_expires_at=utcnow() + timedelta(days=1),
         status=VideoAssetStatus.UPLOADED,
         upload_id="upload",
         part_count=1,
@@ -93,6 +96,36 @@ def test_export_creation_persists_selection_snapshot_before_enqueue(
     assert body["selection_snapshot"] == [
         {"rally_id": body["selection_snapshot"][0]["rally_id"], "start": 11.0, "end": 19.0}
     ]
+
+
+def test_export_creation_rejects_a_second_active_export(
+    client: TestClient, db_session: Session
+) -> None:
+    project, _ = _project_with_rallies(
+        db_session, email="active-export-owner@example.com"
+    )
+    token = login(
+        client,
+        email="active-export-owner@example.com",
+        password="Test-password-123",
+    )
+
+    first = client.post(
+        f"/api/v1/projects/{project.id}/exports",
+        headers=auth_headers(token),
+    )
+    second = client.post(
+        f"/api/v1/projects/{project.id}/exports",
+        headers=auth_headers(token),
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert len(
+        db_session.execute(
+            select(ExportJob).where(ExportJob.project_id == project.id)
+        ).scalars().all()
+    ) == 1
 
 
 def test_cancel_is_owner_scoped_and_hides_failure_detail(
@@ -251,3 +284,70 @@ def test_expired_export_cannot_issue_a_new_signed_url(
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("asset_status", "expires_at"),
+    [
+        (VideoAssetStatus.UPLOADED, utcnow() - timedelta(seconds=1)),
+        (VideoAssetStatus.CLEANUP_PENDING, utcnow() + timedelta(days=1)),
+    ],
+)
+def test_export_creation_requires_live_unexpired_source(
+    asset_status: VideoAssetStatus,
+    expires_at,
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    project, analysis = _project_with_rallies(
+        db_session, email=f"{uuid.uuid4().hex}@example.com"
+    )
+    analysis.video_asset.status = asset_status
+    analysis.video_asset.retention_expires_at = expires_at
+    db_session.commit()
+    token = login(
+        client,
+        email=analysis.project.owner.email,
+        password="Test-password-123",
+    )
+
+    response = client.post(
+        f"/api/v1/projects/{project.id}/exports",
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 409
+    assert db_session.execute(
+        select(ExportJob).where(ExportJob.project_id == project.id)
+    ).first() is None
+
+
+def test_export_retry_requires_live_unexpired_source(
+    client: TestClient, db_session: Session
+) -> None:
+    project, analysis = _project_with_rallies(
+        db_session, email="expired-retry@example.com"
+    )
+    analysis.video_asset.retention_expires_at = utcnow() - timedelta(seconds=1)
+    export = ExportJob(
+        project_id=project.id,
+        owner_id=project.owner_id,
+        status=JobStatus.FAILED,
+        selection_snapshot=[],
+    )
+    db_session.add(export)
+    db_session.commit()
+    token = login(
+        client,
+        email="expired-retry@example.com",
+        password="Test-password-123",
+    )
+
+    response = client.post(
+        f"/api/v1/projects/{project.id}/exports/{export.id}/retry",
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 409
+    db_session.refresh(export)
+    assert export.status == JobStatus.FAILED

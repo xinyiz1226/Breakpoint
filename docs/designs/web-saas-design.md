@@ -340,8 +340,9 @@ fails.
 Analysis processing follows this order:
 
 1. Download the source object into a per-job temporary directory.
-2. Run `ffprobe`, validate the authoritative duration against the 10,800-second
-   cap, and call `apply_authoritative_duration` before expensive work.
+2. Run `ffprobe`, require a finite duration greater than zero, validate it
+   against the 10,800-second cap, and call `apply_authoritative_duration` before
+   expensive work.
 3. Create an H.264/AAC MP4 preview only when the probed container/codecs are not
    browser-compatible.
 4. Run the existing engine in a child process with JSON-line progress, bounded
@@ -354,9 +355,17 @@ Analysis processing follows this order:
    the reservation without billing; retries rebook it in that original month.
 
 Export creation persists the selected rally IDs and effective trimmed ranges
-before enqueue. The worker validates that immutable snapshot against the source
-duration, normalizes and concatenates clips to H.264/AAC MP4, uploads the result,
-and gives it a seven-day expiry. Later rally edits do not affect a retry.
+before enqueue. Creation and retry lock and require an uploaded, unexpired source
+and reject a second active export for the project. The worker validates that
+immutable snapshot against the source duration, normalizes and concatenates clips
+to H.264/AAC MP4, uploads the result, and gives it a seven-day expiry. Later rally
+edits do not affect a retry.
+
+Workers create delayed durable cleanup intents before publishing report, preview,
+or export objects. A success transaction can cancel only pristine, never-claimed
+intents. If cleanup has started or completed, publication loses the race and the
+job fails safely for retry instead of reviving a deleted object or overwriting
+cleanup history.
 
 SSE progress uses the persisted monotonic `event_version` as its event ID.
 Authorization and every snapshot read use short-lived sessions; no transaction
@@ -367,9 +376,11 @@ the bounded admin-only `failure_detail`.
 Beat runs queued-job dispatch recovery, the existing multipart/storage cleanup
 sweep, and seven-day source/preview/export retention cleanup. Source deletion
 continues through Layer 1's leased `StorageCleanupTask` path so object deletion
-and quota release remain idempotent. Project tombstones also cancel active
-children and enqueue durable deletion for source, preview, report, and export
-objects.
+and quota release remain idempotent. Source expiry is fixed: it never moves when
+an export is created. At expiry, queued exports are cancelled and running exports
+receive a cancellation request; cleanup retries after they become terminal.
+Project tombstones also cancel active children and enqueue durable deletion for
+source, preview, report, and export objects.
 
 The design intentionally leaves vendor-specific deployment details to the
 implementation plan. The storage, queue, and container boundaries should allow a

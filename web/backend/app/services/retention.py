@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from sqlalchemy import select
@@ -100,25 +101,49 @@ def run_retention_cleanup(
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one()
-        active_analysis = db.execute(
-            select(AnalysisJob.id).where(
-                AnalysisJob.video_asset_id == asset.id,
-                AnalysisJob.status.in_(list(ACTIVE_JOB_STATUSES)),
-            )
-        ).first()
-        active_export = db.execute(
-            select(ExportJob.id).where(
-                ExportJob.project_id == asset.project_id,
-                ExportJob.status.in_(list(ACTIVE_JOB_STATUSES)),
-            )
-        ).first()
         if (
             asset.status != VideoAssetStatus.UPLOADED
             or asset.retention_expires_at is None
             or ensure_aware(asset.retention_expires_at) > ensure_aware(reference)
-            or active_analysis is not None
-            or active_export is not None
         ):
+            db.commit()
+            continue
+        active_analyses = db.execute(
+            select(AnalysisJob)
+            .where(
+                AnalysisJob.video_asset_id == asset.id,
+                AnalysisJob.status.in_(list(ACTIVE_JOB_STATUSES)),
+            )
+            .order_by(AnalysisJob.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalars().all()
+        active_exports = db.execute(
+            select(ExportJob)
+            .where(
+                ExportJob.project_id == asset.project_id,
+                ExportJob.status.in_(list(ACTIVE_JOB_STATUSES)),
+            )
+            .order_by(ExportJob.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalars().all()
+        if active_analyses or active_exports:
+            for analysis in active_analyses:
+                if analysis.cancel_requested_at is None:
+                    analysis.cancel_requested_at = reference
+                    analysis.event_version += 1
+            for export in active_exports:
+                if export.status == JobStatus.QUEUED:
+                    export.status = JobStatus.CANCELLED
+                    export.lease_token = uuid.uuid4()
+                    export.failure_summary = "Export cancelled because the source expired"
+                    export.failure_detail = None
+                    export.finished_at = reference
+                    export.event_version += 1
+                elif export.cancel_requested_at is None:
+                    export.cancel_requested_at = reference
+                    export.event_version += 1
             db.commit()
             continue
         asset.status = VideoAssetStatus.CLEANUP_PENDING

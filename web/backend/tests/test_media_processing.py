@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
+import os
+import signal
 import sys
 import time
 import uuid
@@ -9,6 +12,7 @@ from datetime import date
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +25,7 @@ from app.models.project import Project
 from app.models.quota import QuotaLedgerEntry
 from app.models.rally import Rally
 from app.models.video import VideoAsset
+from app.services import media_processing as media_processing_service
 from app.services.media_processing import (
     MediaProbe,
     process_analysis_job,
@@ -233,6 +238,50 @@ def test_authoritative_duration_rejection_never_runs_engine(
     assert tools.analyze_calls == 0
 
 
+@pytest.mark.parametrize(
+    "duration", [-1.0, 0.0, math.nan, math.inf, -math.inf]
+)
+def test_invalid_authoritative_duration_fails_without_persisting_invalid_state(
+    duration: float,
+    session_factory,
+    db_session: Session,
+    fake_storage: FakeObjectStorage,
+    test_settings: Settings,
+) -> None:
+    job = _create_analysis_job(db_session, fake_storage)
+    tools = FakeMediaTools(
+        probe_result=MediaProbe(duration, "mp4", "h264", "aac"),
+        report=_report(),
+    )
+
+    process_analysis_job(
+        session_factory, fake_storage, tools, job.id, settings=test_settings
+    )
+    process_analysis_job(
+        session_factory, fake_storage, tools, job.id, settings=test_settings
+    )
+
+    db_session.expire_all()
+    persisted = db_session.get(AnalysisJob, job.id)
+    assert persisted.status == JobStatus.FAILED
+    assert persisted.video_asset.duration_seconds is None
+    assert persisted.video_asset.duration_status is None
+    assert persisted.video_asset.analysis_reserved_seconds == 0
+    assert tools.analyze_calls == 0
+    entries = db_session.execute(
+        select(QuotaLedgerEntry).where(
+            QuotaLedgerEntry.video_asset_id == persisted.video_asset_id
+        )
+    ).scalars().all()
+    assert [entry.event_type for entry in entries].count(
+        QuotaLedgerEventType.ANALYSIS_RESERVATION_RELEASED
+    ) == 1
+    assert all(
+        entry.seconds_delta is None or math.isfinite(entry.seconds_delta)
+        for entry in entries
+    )
+
+
 def test_cancelled_analysis_releases_reservation_once(
     session_factory, db_session: Session, fake_storage: FakeObjectStorage, test_settings: Settings
 ) -> None:
@@ -260,6 +309,47 @@ def test_cancelled_analysis_releases_reservation_once(
     assert [entry.event_type for entry in entries].count(
         QuotaLedgerEventType.ANALYSIS_CANCELLED
     ) == 1
+
+
+def test_progress_callbacks_do_not_refresh_cancelled_job_leases(
+    session_factory,
+    db_session: Session,
+    fake_storage: FakeObjectStorage,
+) -> None:
+    analysis = _create_analysis_job(db_session, fake_storage)
+    analysis_lease = uuid.uuid4()
+    analysis.status = JobStatus.RUNNING
+    analysis.lease_token = analysis_lease
+    analysis.cancel_requested_at = utcnow()
+    export = ExportJob(
+        project_id=analysis.project_id,
+        owner_id=analysis.owner_id,
+        status=JobStatus.RUNNING,
+        lease_token=uuid.uuid4(),
+        cancel_requested_at=utcnow(),
+        selection_snapshot=[],
+    )
+    db_session.add(export)
+    db_session.commit()
+
+    media_processing_service._update_analysis_progress(
+        session_factory,
+        analysis.id,
+        analysis_lease,
+        {"type": "step", "step": 1, "total": 2},
+    )
+    media_processing_service._update_export_progress(
+        session_factory,
+        export.id,
+        export.lease_token,
+        {"progress": 0.5},
+    )
+
+    db_session.expire_all()
+    assert db_session.get(AnalysisJob, analysis.id).event_version == 0
+    assert db_session.get(AnalysisJob, analysis.id).progress == 0
+    assert db_session.get(ExportJob, export.id).event_version == 0
+    assert db_session.get(ExportJob, export.id).progress == 0
 
 
 def test_browser_compatible_media_skips_proxy(
@@ -361,6 +451,42 @@ def test_cancellation_actively_terminates_child_process() -> None:
     assert time.monotonic() - started < 6
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group regression")
+def test_cancellation_kills_grandchild_that_ignores_sigterm(tmp_path) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    script = (
+        "import subprocess,sys,time; "
+        "p=subprocess.Popen([sys.executable,'-c',"
+        "'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)']); "
+        f"open({str(pid_file)!r},'w').write(str(p.pid)); "
+        "time.sleep(30)"
+    )
+    grandchild_pid: int | None = None
+    try:
+        with pytest.raises(JobCancelled):
+            run_json_progress_process(
+                [sys.executable, "-c", script],
+                cancelled=pid_file.exists,
+                progress=lambda event: None,
+            )
+        grandchild_pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                os.kill(grandchild_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("grandchild survived process-group cancellation")
+    finally:
+        if grandchild_pid is not None:
+            try:
+                os.kill(grandchild_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 def test_interrupted_analysis_uses_durable_cleanup_for_uploaded_artifacts(
     session_factory, db_session: Session, fake_storage: FakeObjectStorage, test_settings: Settings
 ) -> None:
@@ -416,6 +542,96 @@ def test_interrupted_analysis_uses_durable_cleanup_for_uploaded_artifacts(
             select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id.is_(None))
         ).scalars()
     )
+
+
+def test_cleanup_claim_wins_over_paused_artifact_publication(
+    session_factory,
+    db_session: Session,
+    fake_storage: FakeObjectStorage,
+    test_settings: Settings,
+) -> None:
+    job = _create_analysis_job(db_session, fake_storage)
+    tools = FakeMediaTools(
+        probe_result=MediaProbe(120, "mp4", "h264", "aac"),
+        report=_report(),
+    )
+    original_upload = fake_storage.upload_file
+
+    def sweep_after_upload(**kwargs):
+        original_upload(**kwargs)
+        with session_factory() as session:
+            run_due_storage_cleanup_sweep(
+                session, fake_storage, now=utcnow() + timedelta(hours=7)
+            )
+
+    fake_storage.upload_file = sweep_after_upload
+
+    process_analysis_job(
+        session_factory, fake_storage, tools, job.id, settings=test_settings
+    )
+
+    db_session.expire_all()
+    persisted = db_session.get(AnalysisJob, job.id)
+    assert persisted.status == JobStatus.FAILED
+    assert persisted.report_object_key is None
+    tasks = db_session.execute(
+        select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id.is_(None))
+    ).scalars().all()
+    assert tasks
+    assert any(task.status == StorageCleanupStatus.COMPLETED for task in tasks)
+    assert any(task.status == StorageCleanupStatus.PENDING for task in tasks)
+    run_due_storage_cleanup_sweep(
+        db_session, fake_storage, now=utcnow() + timedelta(hours=8)
+    )
+    db_session.expire_all()
+    tasks = db_session.execute(
+        select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id.is_(None))
+    ).scalars().all()
+    assert all(task.status == StorageCleanupStatus.COMPLETED for task in tasks)
+    assert all(task.object_key not in fake_storage.objects for task in tasks)
+
+
+def test_completed_cleanup_before_upload_gets_successor_intent(
+    monkeypatch,
+    session_factory,
+    db_session: Session,
+    fake_storage: FakeObjectStorage,
+    test_settings: Settings,
+) -> None:
+    job = _create_analysis_job(db_session, fake_storage)
+    tools = FakeMediaTools(
+        probe_result=MediaProbe(120, "mp4", "h264", "aac"),
+        report=_report(),
+    )
+    original_create = media_processing_service._create_artifact_cleanup_intent
+
+    def create_after_pause(*args, **kwargs):
+        task_id = original_create(*args, **kwargs)
+        with session_factory() as session:
+            run_due_storage_cleanup_sweep(
+                session, fake_storage, now=utcnow() + timedelta(hours=7)
+            )
+        return task_id
+
+    monkeypatch.setattr(
+        media_processing_service,
+        "_create_artifact_cleanup_intent",
+        create_after_pause,
+    )
+
+    process_analysis_job(
+        session_factory, fake_storage, tools, job.id, settings=test_settings
+    )
+
+    db_session.expire_all()
+    persisted = db_session.get(AnalysisJob, job.id)
+    assert persisted.status == JobStatus.SUCCEEDED
+    assert persisted.report_object_key in fake_storage.objects
+    tasks = db_session.execute(
+        select(StorageCleanupTask).where(StorageCleanupTask.video_asset_id.is_(None))
+    ).scalars().all()
+    assert [task.status for task in tasks].count(StorageCleanupStatus.COMPLETED) == 1
+    assert [task.status for task in tasks].count(StorageCleanupStatus.CANCELLED) == 1
 
 
 def test_stale_running_analysis_is_reclaimed_with_a_new_lease(
