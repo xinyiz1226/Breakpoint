@@ -9,3 +9,5 @@ docs/
 **/*.db
 **/.env
 **/.pytest_cache/
+web/frontend/node_modules/
+web/frontend/.next/

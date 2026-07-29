@@ -23,3 +23,10 @@ build-engine/
 web/backend/.venv/
 .pytest_cache/
 *.db
+
+# Web frontend
+web/frontend/node_modules/
+web/frontend/.next/
+web/frontend/coverage/
+web/frontend/.env.local
+web/frontend/*.tsbuildinfo
