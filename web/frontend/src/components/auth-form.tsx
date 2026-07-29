@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
@@ -9,6 +9,11 @@ import { LanguageSwitch, useI18n } from "@/lib/i18n";
 import { Brand } from "./brand";
 
 type Mode = "login" | "register" | "verify" | "forgot" | "reset";
+type LoginNotice = "account-verified" | "password-reset";
+
+function parseLoginNotice(value: string | null): LoginNotice | null {
+  return value === "account-verified" || value === "password-reset" ? value : null;
+}
 
 function safeNextPath(value: string | null): string {
   if (!value?.startsWith("/")) return "/projects";
@@ -28,9 +33,25 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const search = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMismatch, setPasswordMismatch] = useState(false);
+  const [loginNotice, setLoginNotice] = useState<LoginNotice | null>(() =>
+    mode === "login" ? parseLoginNotice(search.get("notice")) : null,
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const confirmPasswordRef = useRef<HTMLInputElement>(null);
+  const noticeValue = search.get("notice");
+  const searchString = search.toString();
+
+  useEffect(() => {
+    if (mode !== "login" || noticeValue === null) return;
+    const nextSearch = new URLSearchParams(searchString);
+    nextSearch.delete("notice");
+    const query = nextSearch.toString();
+    router.replace(query ? `/login?${query}` : "/login");
+  }, [mode, noticeValue, router, searchString]);
 
   const title =
     mode === "login"
@@ -51,9 +72,16 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if ((mode === "verify" || mode === "reset") && password !== confirmPassword) {
+      setPasswordMismatch(true);
+      confirmPasswordRef.current?.focus();
+      confirmPasswordRef.current?.select();
+      return;
+    }
     setBusy(true);
     setError(null);
     setMessage(null);
+    if (mode === "login") setLoginNotice(null);
     try {
       if (mode === "login") {
         await auth.login(email, password);
@@ -63,13 +91,13 @@ export function AuthForm({ mode }: { mode: Mode }) {
         setMessage(t("registrationSent"));
       } else if (mode === "verify") {
         await api.verifyEmail(search.get("token") ?? "", password);
-        setMessage(t("verified"));
+        router.replace("/login?notice=account-verified");
       } else if (mode === "forgot") {
         await api.forgotPassword(email);
         setMessage(t("forgotSent"));
       } else {
         await api.resetPassword(search.get("token") ?? "", password);
-        setMessage(t("resetDone"));
+        router.replace("/login?notice=password-reset");
       }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : t("unexpected"));
@@ -80,6 +108,13 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
   const needsEmail = mode === "login" || mode === "register" || mode === "forgot";
   const needsPassword = mode === "login" || mode === "verify" || mode === "reset";
+  const needsPasswordConfirmation = mode === "verify" || mode === "reset";
+  const loginNoticeMessage =
+    loginNotice === "account-verified"
+      ? t("accountVerifiedNotice")
+      : loginNotice === "password-reset"
+        ? t("passwordResetNotice")
+        : null;
 
   return (
     <main className="auth-layout">
@@ -126,13 +161,47 @@ export function AuthForm({ mode }: { mode: Mode }) {
                   maxLength={128}
                   autoComplete={mode === "login" ? "current-password" : "new-password"}
                   required
+                  disabled={busy}
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setPasswordMismatch(false);
+                  }}
                 />
+              </label>
+            )}
+            {needsPasswordConfirmation && (
+              <label>
+                <span>{t("confirmNewPassword")}</span>
+                <input
+                  ref={confirmPasswordRef}
+                  type="password"
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  required
+                  disabled={busy}
+                  value={confirmPassword}
+                  aria-invalid={passwordMismatch}
+                  aria-describedby={passwordMismatch ? "confirm-password-error" : undefined}
+                  onChange={(event) => {
+                    setConfirmPassword(event.target.value);
+                    setPasswordMismatch(false);
+                  }}
+                  onBlur={() => setPasswordMismatch(password !== confirmPassword)}
+                />
+                {passwordMismatch && (
+                  <span id="confirm-password-error" className="field-error" role="alert">
+                    {t("passwordMismatch")}
+                  </span>
+                )}
               </label>
             )}
             {error && <p className="form-message error" role="alert">{error}</p>}
             {message && <p className="form-message success" role="status">{message}</p>}
+            {loginNoticeMessage && (
+              <p className="form-message success" role="status">{loginNoticeMessage}</p>
+            )}
             <button className="button primary wide" disabled={busy}>
               {busy ? <span className="spinner light" /> : t("submit")}
             </button>

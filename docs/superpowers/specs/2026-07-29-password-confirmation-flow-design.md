@@ -29,6 +29,11 @@ Submission is blocked before any API request while the values differ.
 Changing either password field clears a stale mismatch error. While a request
 is pending, both password fields and the submit button are disabled.
 
+The submit button remains enabled when the values differ so it can explain the
+problem rather than silently blocking the user. A mismatched submit focuses and
+selects the confirmation field. Pasting and password-manager autofill remain
+available, and pressing Enter follows the same validation path as Continue.
+
 ## Success Navigation
 
 Successful account verification redirects to:
@@ -45,8 +50,11 @@ corresponding localized success message:
 - `account-verified`: account verified and password set successfully
 - `password-reset`: password changed successfully
 
-Unknown notice values are ignored. The URL-based notice is intentionally
-refresh-stable and avoids introducing shared application state.
+After reading the notice, the login form removes only the `notice` parameter
+with `router.replace` while retaining the semantic notice in local state.
+Refresh therefore does not replay an old success message. Unknown notice values
+are ignored and removed. The notice is cleared when a login submission starts
+and updates immediately when the user switches languages.
 
 ## Error Handling
 
