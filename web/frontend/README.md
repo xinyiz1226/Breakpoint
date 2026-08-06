@@ -44,8 +44,8 @@ docker compose up --build
 ```
 
 Compose starts the frontend on port 3000, API on 8000, Mailpit on 8025, MinIO
-on 9000/9001, Postgres, Redis, the Celery worker, and Beat. The included MinIO
-CORS policy permits local direct multipart uploads and exposes `ETag`.
+on 9000/9001, Postgres, Redis, the Celery worker, and Beat. The MinIO API CORS
+configuration permits local direct multipart uploads and exposes `ETag`.
 
 For a real deployment, set `NEXT_PUBLIC_API_URL` at image build time, configure
 `BREAKPOINT_CORS_ALLOW_ORIGINS` and `BREAKPOINT_APP_BASE_URL` to the public

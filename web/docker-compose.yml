@@ -35,6 +35,7 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:3000
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -47,7 +48,7 @@ services:
       retries: 10
 
   minio-init:
-    image: minio/mc:RELEASE.2024-10-13T08-57-13Z
+    image: minio/mc:RELEASE.2024-10-08T09-37-26Z
     restart: "no"
     depends_on:
       minio:
@@ -55,11 +56,8 @@ services:
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/breakpoint-videos &&
-      mc cors set local/breakpoint-videos /config/minio-cors.xml
+      mc mb --ignore-existing local/breakpoint-videos
       "
-    volumes:
-      - ./minio-cors.xml:/config/minio-cors.xml:ro
 
   mailpit:
     image: axllent/mailpit:latest
@@ -91,7 +89,7 @@ services:
       BREAKPOINT_DATABASE_URL: postgresql+psycopg2://breakpoint:breakpoint@postgres:5432/breakpoint
       BREAKPOINT_JWT_SECRET_KEY: ${BREAKPOINT_JWT_SECRET_KEY:?set a strong JWT secret for the api container}
       BREAKPOINT_REFRESH_COOKIE_SECURE: ${BREAKPOINT_REFRESH_COOKIE_SECURE:-false}
-      BREAKPOINT_CORS_ALLOW_ORIGINS: ${BREAKPOINT_CORS_ALLOW_ORIGINS:-http://localhost:3000}
+      BREAKPOINT_CORS_ALLOW_ORIGINS: '${BREAKPOINT_CORS_ALLOW_ORIGINS:-["http://localhost:3000"]}'
       BREAKPOINT_APP_BASE_URL: ${BREAKPOINT_APP_BASE_URL:-http://localhost:3000}
       BREAKPOINT_SMTP_HOST: mailpit
       BREAKPOINT_SMTP_PORT: "1025"

@@ -29,4 +29,5 @@ web/frontend/node_modules/
 web/frontend/.next/
 web/frontend/coverage/
 web/frontend/.env.local
+web/.env
 web/frontend/*.tsbuildinfo

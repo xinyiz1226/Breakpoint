@@ -29,7 +29,8 @@ COPY web/backend/app ./app
 COPY web/backend/alembic.ini ./alembic.ini
 COPY web/backend/alembic ./alembic
 COPY web/backend/docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
+RUN sed -i 's/\r$//' ./docker-entrypoint.sh \
+    && chmod +x ./docker-entrypoint.sh
 
 RUN chown -R app:app /app
 USER app
