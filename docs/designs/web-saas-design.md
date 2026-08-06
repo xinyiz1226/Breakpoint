@@ -23,8 +23,17 @@ deployment requirements.
 - Use ordinary email login or magic-link authentication.
 - Store original videos and exported videos for seven days.
 - Store reports, project metadata, edit decisions, and job history long term.
-- Limit uploads to a single video, with the product limit defined as no more
-  than 10 GB and no more than three hours per video.
+- Limit uploads to a single video. The initial implementation caps declared
+  upload size at 20 GiB (env-configurable, `MAX_UPLOAD_SIZE_BYTES`) and the
+  product duration limit remains no more than 3 hours per video
+  (env-configurable, `MAX_VIDEO_DURATION_SECONDS`, default 10800). The API
+  validates the client-declared duration against this cap at upload
+  initiation and provisionally reserves monthly analysis-seconds quota
+  against it, since real usage cannot be known before analysis. The
+  authoritative duration is still worker-determined: the future worker's
+  first step (ffprobe) must reject (mark the analysis job failed) and
+  release/reconcile the reservation for assets whose real duration turns out
+  to exceed the cap, since the client declaration is never fully trusted.
 - Run the full existing analysis pipeline by default: audio hit detection,
   segmentation, vision ranking, and player identity. Keep a fast audio-only mode
   as an internal fallback or debugging option.
@@ -127,7 +136,13 @@ per project. A project owns analysis jobs, rallies, edits, and export jobs.
 
 Represents a stored uploaded video or preview proxy. Fields include owner,
 project, object key, original filename, content type, size, duration, format,
-retention expiry, and processing status.
+retention expiry, and processing status. There are two duration fields with
+different authority: `declared_duration_seconds` is the client-declared
+value supplied at upload initiation, validated against the duration cap and
+used to reserve monthly analysis quota; `duration_seconds` and its check
+status (`within_limit` / `exceeded` against the video duration cap) are both
+nullable and stay unset in this layer — only the future worker probes and
+writes them, once it has the actual media in hand.
 
 ### AnalysisJob
 
@@ -173,7 +188,8 @@ rewriting the processing model.
    and returns signed multipart upload instructions.
 5. The browser uploads video chunks directly to object storage.
 6. The browser finalizes the upload with the API.
-7. The API probes or records video metadata and enqueues analysis.
+7. The API records upload metadata and enqueues analysis; the worker probes the
+   authoritative media metadata before analysis begins.
 8. The progress page subscribes to job state using SSE or WebSocket.
 9. The worker downloads the video to temporary disk, runs the existing engine,
    uploads `full_report.json`, expands rallies into Postgres, and marks the job
@@ -202,10 +218,11 @@ Keep `engine/` as the reusable core analysis package. The SaaS worker should
 reuse the same analysis behavior as the desktop app, including report schema and
 JSON progress concepts.
 
-Treat `web/app.py` as a legacy local prototype. It demonstrates an early browser
-workflow, but it should not become the SaaS backend because it mixes file
-selection, synchronous analysis, video serving, export, and UI assumptions in
-one Flask process.
+The legacy `web/app.py` local prototype has been removed. It demonstrated an
+early browser workflow, but it did not become the SaaS backend because it
+mixed file selection, synchronous analysis, video serving, export, and UI
+assumptions in one Flask process. The SaaS backend lives in `web/backend`
+instead, built from a clean slate as a modular FastAPI monolith.
 
 Borrow these desktop concepts for the web UI and model:
 
@@ -230,8 +247,21 @@ Avoid coupling the SaaS design to desktop-only concepts:
 ### Uploads
 
 Uploads must support chunk retry and explicit finalization. Abandoned upload
-sessions should be cleaned up by a scheduled task. The API rejects projects that
-exceed quota, size, duration, or supported format rules.
+sessions should be cleaned up by a scheduled task. The API rejects projects
+that exceed quota, declared size, declared duration, or supported format
+rules at upload time. Upload initiation requires a client-declared duration,
+rejects it outright if it exceeds `MAX_VIDEO_DURATION_SECONDS`, and
+provisionally reserves that many seconds against the caller's monthly
+analysis-seconds quota — real usage cannot be known before analysis runs, so
+the declaration is the best available basis for enforcing the limit early
+and preventing quota exhaustion by many oversized uploads in flight at once.
+This reservation is released if finalize's own integrity checks fail (the
+asset will never be analyzed). The authoritative check still belongs to the
+worker: its first step (ffprobe) validates the real duration against the
+cap and, on rejection, marks the analysis job failed and releases/reconciles
+the reservation to actual usage. The API never probes media itself and never
+treats the client declaration as ground truth for anything other than the
+initial cap check and quota reservation.
 
 ### Jobs
 
@@ -292,7 +322,68 @@ Define stable schemas for progress events, reports, rallies, edits, and export
 requests. Contract tests should prevent the desktop bridge, SaaS worker, and web
 frontend from drifting apart.
 
-## Open Implementation Notes
+## Implementation Status
+
+### Layers 1 and 2
+
+Layer 1 delivered the FastAPI/Postgres/MinIO foundation, authentication,
+owner-scoped projects and uploads, quota reservations, durable storage cleanup,
+and job/rally schemas.
+
+Layer 2 adds Celery workers and Beat over Redis. Postgres remains authoritative
+for job state, cancellation, progress versions, export snapshots, retention,
+and billing; Redis is used for broker, result, and Celery event traffic only.
+Duplicate task delivery is a no-op once a job is running or terminal, and Beat
+periodically redelivers durable queued jobs if the API's initial broker dispatch
+fails.
+
+Analysis processing follows this order:
+
+1. Download the source object into a per-job temporary directory.
+2. Run `ffprobe`, require a finite duration greater than zero, validate it
+   against the 10,800-second cap, and call `apply_authoritative_duration` before
+   expensive work.
+3. Create an H.264/AAC MP4 preview only when the probed container/codecs are not
+   browser-compatible.
+4. Run the existing engine in a child process with JSON-line progress, bounded
+   stderr retention, and active process-group termination on cancellation.
+5. Validate report version 2 and every rally range, upload `full_report.json`,
+   persist rallies plus default edits atomically, and mark the job succeeded.
+6. In that same success transaction, release the authoritative reservation and
+   append one `ANALYSIS_COMPLETED` entry for the same amount in the reservation's
+   original accounting month. Failure or cancellation before success releases
+   the reservation without billing; retries rebook it in that original month.
+
+Export creation persists the selected rally IDs and effective trimmed ranges
+before enqueue. Creation and retry lock and require an uploaded, unexpired source
+and reject a second active export for the project. The worker validates that
+immutable snapshot against the source duration, normalizes and concatenates clips
+to H.264/AAC MP4, uploads the result, and gives it a seven-day expiry. Later rally
+edits do not affect a retry.
+
+Workers create delayed durable cleanup intents before publishing report, preview,
+or export objects. Creation and publication serialize on the owning project and
+publication locks every cleanup generation for the artifact key. A success
+transaction proceeds only when all predecessors are terminal and the current
+intent is pristine, verifies the uploaded object still exists, rechecks that no
+generation appeared during verification, and then cancels the current intent. If
+cleanup can still execute, publication loses the race and the job fails safely
+for retry instead of reviving a deleted object or overwriting cleanup history.
+
+SSE progress uses the persisted monotonic `event_version` as its event ID.
+Authorization and every snapshot read use short-lived sessions; no transaction
+is held for the life of the stream. Reconnects send only a newer durable
+snapshot than `Last-Event-ID`. Owner payloads expose `failure_summary`, never
+the bounded admin-only `failure_detail`.
+
+Beat runs queued-job dispatch recovery, the existing multipart/storage cleanup
+sweep, and seven-day source/preview/export retention cleanup. Source deletion
+continues through Layer 1's leased `StorageCleanupTask` path so object deletion
+and quota release remain idempotent. Source expiry is fixed: it never moves when
+an export is created. At expiry, queued exports are cancelled and running exports
+receive a cancellation request; cleanup retries after they become terminal.
+Project tombstones also cancel active children and enqueue durable deletion for
+source, preview, report, and export objects.
 
 The design intentionally leaves vendor-specific deployment details to the
 implementation plan. The storage, queue, and container boundaries should allow a
