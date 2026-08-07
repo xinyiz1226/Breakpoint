@@ -206,9 +206,9 @@ button { color: inherit; }
 .upload-allowance { margin: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.4; }
 .upload-action { justify-self: end; min-width: 210px; }
 .progress-stage { min-height: calc(100vh - 120px); display: grid; grid-template-columns: .8fr 1.2fr; background: var(--court); color: #fff; }
-.progress-score { display: flex; justify-content: center; align-items: center; min-height: 600px; border-right: 1px solid rgba(255,255,255,.16); background: radial-gradient(circle at center, rgba(201,220,73,.1), transparent 58%); }
-.progress-score span { font: 800 clamp(160px,25vw,360px)/.7 var(--font-display); letter-spacing: -.08em; color: var(--lime); }
-.progress-score small { align-self: flex-start; margin-top: 30%; font: 700 24px var(--font-display); }
+.progress-score { --progress-score-size: clamp(160px,25vw,360px); display: flex; justify-content: center; align-items: center; min-height: 600px; border-right: 1px solid rgba(255,255,255,.16); background: radial-gradient(circle at center, rgba(201,220,73,.1), transparent 58%); }
+.progress-score span { font: 800 var(--progress-score-size)/.7 var(--font-display); letter-spacing: 0; color: var(--lime); }
+.progress-score small { align-self: center; margin-left: clamp(8px,1vw,16px); transform: translateY(calc(var(--progress-score-size) * -.35 + 12px)); font: 700 24px/1 var(--font-display); }
 .progress-content { align-self: center; padding: clamp(40px,8vw,120px); max-width: 820px; }
 .progress-content .eyebrow { color: var(--lime); }
 .progress-content h1 { margin: 8px 0 12px; font: 800 clamp(62px,8vw,112px)/.8 var(--font-display); text-transform: uppercase; }
@@ -319,7 +319,6 @@ button { color: inherit; }
   .upload-copy h1 { font-size: 70px; }
   .progress-stage { grid-template-columns: 1fr; }
   .progress-score { min-height: 300px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.16); }
-  .progress-score small { margin-top: 12%; }
   .review-grid { height: auto; grid-template-columns: 1fr; }
   .review-main { min-height: 720px; }
   .rally-panel { min-height: 780px; border-left: 0; border-top: 1px solid var(--line); }
@@ -361,7 +360,7 @@ button { color: inherit; }
   .file-ticket { grid-template-columns: 1fr 1fr; }
   .file-ticket strong { grid-column: 1 / -1; }
   .upload-action { width: 100%; }
-  .progress-score span { font-size: 150px; }
+  .progress-score { --progress-score-size: 150px; }
   .progress-content { padding: 50px 20px 70px; }
   .progress-content h1 { font-size: 62px; }
   .job-status { grid-template-columns: auto 1fr; }
