@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import type { Project, Quota } from "@/lib/types";
@@ -9,6 +10,8 @@ import { QuotaBoard } from "./quota-board";
 
 export function ProjectsScreen() {
   const { language, t } = useI18n();
+  const router = useRouter();
+  const search = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [name, setName] = useState("");
@@ -37,6 +40,12 @@ export function ProjectsScreen() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (search.get("create") === "1") {
+      document.querySelector<HTMLInputElement>("#project-name")?.focus();
+    }
+  }, [search]);
+
   async function create(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
@@ -44,6 +53,10 @@ export function ProjectsScreen() {
     setError(null);
     try {
       const project = await api.createProject(name.trim());
+      if (search.get("create") === "1") {
+        router.push(`/projects/${project.id}`);
+        return;
+      }
       setProjects((current) => [project, ...current]);
       setName("");
     } catch (caught) {

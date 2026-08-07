@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { ApiError, api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -39,6 +39,7 @@ export function UploadPanel({
   const { t } = useI18n();
   const [selection, setSelection] = useState<Selection | null>(null);
   const [reading, setReading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,8 +67,7 @@ export function UploadPanel({
     };
   }, [projectId]);
 
-  async function select(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+  async function chooseFile(file?: File) {
     if (!file) return;
     setReading(true);
     setError(null);
@@ -86,8 +86,18 @@ export function UploadPanel({
       setError(caught instanceof Error ? caught.message : t("unexpected"));
     } finally {
       setReading(false);
-      event.target.value = "";
     }
+  }
+
+  async function select(event: ChangeEvent<HTMLInputElement>) {
+    await chooseFile(event.target.files?.[0]);
+    event.target.value = "";
+  }
+
+  function drop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (!busy && !activeUpload) void chooseFile(event.dataTransfer.files?.[0]);
   }
 
   async function finalizeUpload(
@@ -188,9 +198,24 @@ export function UploadPanel({
       <div className="upload-copy">
         <p className="eyebrow">SOURCE VIDEO / ONE MATCH</p>
         <h1>{t("uploadTitle")}</h1>
-        <p>{t("uploadIntro")}</p>
+        <p>{t("uploadDetail")}</p>
+        <div className="retention-note">
+          <b>7D</b>
+          <div><strong>{t("uploadRetentionTitle")}</strong><span>{t("uploadRetentionHint")}</span></div>
+        </div>
       </div>
-      <div className={`drop-zone ${selection ? "selected" : ""}`}>
+      <div
+        className={`drop-zone ${selection ? "selected" : ""} ${dragging ? "dragging" : ""}`}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          if (!busy && !activeUpload) setDragging(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={drop}
+      >
         <input
           id="video-input"
           type="file"
@@ -200,7 +225,8 @@ export function UploadPanel({
         />
         <label htmlFor="video-input">
           <span className="tennis-ball" aria-hidden="true" />
-          {reading ? t("preparing") : selection ? t("replaceVideo") : t("chooseVideo")}
+          <strong>{reading ? t("preparing") : selection ? t("replaceVideo") : t("dropVideo")}</strong>
+          {!selection && <small>{t("dropVideoHint")}</small>}
         </label>
         {selection && (
           <div className="file-ticket">
@@ -210,9 +236,21 @@ export function UploadPanel({
           </div>
         )}
       </div>
+      <ul className="upload-constraints" aria-label={t("uploadIntro")}>
+        <li><strong>{t("uploadFormats")}</strong><span>{t("uploadIntro")}</span></li>
+        <li><strong>20 GB</strong><span>{t("size")}</span></li>
+        <li><strong>3 HRS</strong><span>{t("duration")}</span></li>
+      </ul>
       {progress && (
-        <div className="upload-progress">
-          <div><span>{t("uploading")}</span><strong>{Math.round(progress.ratio * 100)}%</strong></div>
+        <div
+          className="upload-progress"
+          role="progressbar"
+          aria-label={t("uploadStage")}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress.ratio * 100)}
+        >
+          <div><span>{t("uploadStage")}</span><strong>{Math.round(progress.ratio * 100)}%</strong></div>
           <div className="meter"><i style={{ width: `${progress.ratio * 100}%` }} /></div>
           <small>{bytes(progress.uploadedBytes)} / {bytes(progress.totalBytes)}</small>
         </div>
@@ -226,6 +264,7 @@ export function UploadPanel({
         </div>
       )}
       <div className="upload-actions">
+        <p className="upload-allowance">{t("uploadAllowance")}</p>
         <button className="button primary upload-action" disabled={!selection || busy || abortPending} onClick={start}>
           {busy ? <><span className="spinner light" />{t("uploading")}</> : t("startUpload")}
         </button>

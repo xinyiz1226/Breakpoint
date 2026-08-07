@@ -126,7 +126,8 @@ export function Protected({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (auth.ready && !auth.authenticated && !auth.recoveryError) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      const next = `${pathname}${window.location.search}`;
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
     }
   }, [auth.authenticated, auth.ready, auth.recoveryError, pathname, router]);
 

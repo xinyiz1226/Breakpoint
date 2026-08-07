@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UploadPanel } from "@/components/upload-panel";
 import { api } from "@/lib/api";
@@ -21,6 +21,22 @@ vi.mock("@/lib/upload", async () => ({
 describe("UploadPanel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("accepts a valid video dropped on the upload target", async () => {
+    uploadMocks.readVideoDuration.mockResolvedValue(120);
+    const view = render(<UploadPanel projectId="project-1" onComplete={vi.fn()} />);
+    const dropZone = view.container.querySelector(".drop-zone");
+    const file = new File(["game"], "match.mp4", { type: "video/mp4" });
+    Object.defineProperty(file, "size", { value: 4 });
+
+    await act(async () => {
+      fireEvent.drop(dropZone!, { dataTransfer: { files: [file] } });
+    });
+
+    expect(uploadMocks.readVideoDuration).toHaveBeenCalledWith(file);
+    expect(view.getByText("match.mp4")).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "startUpload" })).toBeEnabled();
   });
 
   it("aborts the server upload when navigation unmounts an initiated transfer", async () => {

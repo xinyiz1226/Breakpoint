@@ -18,8 +18,9 @@ function parseLoginNotice(value: string | null): LoginNotice | null {
 function safeNextPath(value: string | null): string {
   if (!value?.startsWith("/")) return "/projects";
   try {
-    const target = new URL(value, window.location.origin);
-    if (target.origin !== window.location.origin) return "/projects";
+    const origin = "https://breakpoint.local";
+    const target = new URL(value, origin);
+    if (target.origin !== origin) return "/projects";
     return `${target.pathname}${target.search}${target.hash}`;
   } catch {
     return "/projects";
@@ -85,13 +86,20 @@ export function AuthForm({ mode }: { mode: Mode }) {
     try {
       if (mode === "login") {
         await auth.login(email, password);
-        router.replace(safeNextPath(search.get("next")));
+        const next = safeNextPath(search.get("next"));
+        window.localStorage.removeItem("breakpoint-auth-next");
+        router.replace(next);
       } else if (mode === "register") {
         await api.register(email);
+        const next = search.get("next");
+        if (next) window.localStorage.setItem("breakpoint-auth-next", safeNextPath(next));
         setMessage(t("registrationSent"));
       } else if (mode === "verify") {
         await api.verifyEmail(search.get("token") ?? "", password);
-        router.replace("/login?notice=account-verified");
+        const next = window.localStorage.getItem("breakpoint-auth-next");
+        router.replace(
+          `/login?notice=account-verified${next ? `&next=${encodeURIComponent(next)}` : ""}`,
+        );
       } else if (mode === "forgot") {
         await api.forgotPassword(email);
         setMessage(t("forgotSent"));
@@ -109,6 +117,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const needsEmail = mode === "login" || mode === "register" || mode === "forgot";
   const needsPassword = mode === "login" || mode === "verify" || mode === "reset";
   const needsPasswordConfirmation = mode === "verify" || mode === "reset";
+  const nextQuery = search.get("next");
+  const preservedNext = nextQuery ? `?next=${encodeURIComponent(safeNextPath(nextQuery))}` : "";
   const loginNoticeMessage =
     loginNotice === "account-verified"
       ? t("accountVerifiedNotice")
@@ -209,11 +219,11 @@ export function AuthForm({ mode }: { mode: Mode }) {
           <div className="auth-links">
             {mode === "login" ? (
               <>
-                <Link href="/register">{t("createAccount")}</Link>
+                <Link href={`/register${preservedNext}`}>{t("createAccount")}</Link>
                 <Link href="/forgot-password">{t("forgotPassword")}</Link>
               </>
             ) : (
-              <Link href="/login">{t("backToLogin")}</Link>
+              <Link href={`/login${preservedNext}`}>{t("backToLogin")}</Link>
             )}
           </div>
         </div>
